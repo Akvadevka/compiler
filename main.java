@@ -1,3 +1,4 @@
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.io.IOException;
@@ -302,16 +303,16 @@ class Lexer {
 
 	}
 
-	public void start() {
+	public List<Token> start() {
+		List<Token> tokenList = new ArrayList<>();
 		while (true) {
 			if (currentCharNum >= code.length()) {
-				return;
+				return tokenList;
 			}
-//			Token token = tokenFind();
-//			List<Token> tokenList = new List(Token);
-//			tokenList.add(token);
-			tokenFind().print();
-//			tokenFind().fullPrint();
+			Token token = tokenFind();
+			tokenList.add(token);
+			token.print();
+//			token.fullPrint();
 		}
 	}
 
@@ -490,21 +491,19 @@ class Lexer {
 	}
 
 	public static void main(String[] args) {
-		// Путь к файлу
 		String filePath = "test.d";
 
 		try {
-			// Чтение содержимого файла в строку
 			String str = new String(Files.readAllBytes(Paths.get(filePath)));
 
-			// Передача строки в конструктор Lexer
 			Lexer lexer = new Lexer(str);
-			lexer.start();
+			List<Token> tokenList = lexer.start();
 
-			// Ваши действия с объектом Lexer
+//			for (Token token : tokenList) {
+//				token.print();
+//			}
 
 		} catch (IOException e) {
-			// Обработка ошибки, если файл не найден или произошла ошибка ввода/вывода
 			System.out.println("Ошибка чтения файла: " + e.getMessage());
 		}
 
