@@ -140,7 +140,8 @@ class StringToken extends Token {
 
 enum TokenCode {
 	// Ключевые слова
-	VAR, IF, ELSE, WHILE, FOR, RETURN, PRINT, FUNC, LOOP, END, IS, THEN, IN, READ_INT, READ_REAL, READ_STRING,
+	VAR, IF, ELSE, WHILE, FOR, RETURN, PRINT, FUNC,
+	LOOP, END, IS, THEN, IN, READ_INT, READ_REAL, READ_STRING, LENGTH,
 
 	// Булевые литералы и специальное значение
 	TRUE, FALSE, EMPTY,
@@ -151,7 +152,7 @@ enum TokenCode {
 	// Операторы
 	ASSIGN, PLUS, MINUS, MULTIPLY, DIVIDE,
 	AND, OR, XOR, NOT,
-	LESS, LESS_EQUAL, GREATER, GREATER_EQUAL, EQUAL, NOT_EQUAL,
+	LESS, LESS_EQUAL, GREATER, GREATER_EQUAL, EQUAL, NOT_EQUAL, IMPLICATION,
 
 	// Специальные операторы
 	DOT, LBRACKET, RBRACKET, LPAREN, RPAREN,TWO_DOT, QUOTE, DOUBLE_QUOTE,
@@ -174,7 +175,7 @@ class Lexer {
 	private final String code; // Код который мы чекаем
 	private int lineNum = 1; // На какой сейчас строчке стоит поинт (для span)
 	private int currentCharNum = 0; // На каком индексе сейчас находимся
-	List<Character> symbolList = Arrays.asList('(', ')', ',', '+', '/', '-', '=', ':', ';'); //Ахуевшие символы, которые надо проверять отдельно, т.к. они могу стоять без пробела
+	List<Character> symbolList = Arrays.asList('(', ')', ',', '+', '/', '-', '=', ':', ';', '>', '<', '[', ']', '{', '}', '.'); //Ахуевшие символы, которые надо проверять отдельно, т.к. они могу стоять без пробела
 
 	public Lexer (String code) {
 		this.code = code;
@@ -230,8 +231,8 @@ class Lexer {
 	}
 
 	private boolean specSymbolCheck(int num) {
-        return symbolList.contains(this.code.charAt(num));
-    }
+		return symbolList.contains(this.code.charAt(num));
+	}
 
 	private Token stringTokenFind() {
 		this.currentCharNum++;
@@ -362,7 +363,7 @@ class Lexer {
 			}
 			else if (str.equals(",")){
 				return TokenCode.COMMA;
-     		}
+			}
 			else if (str.equals(";")){
 				return TokenCode.SEMICOLON;
 			}
@@ -383,6 +384,9 @@ class Lexer {
 			}
 			else if (str.equals(">=")){
 				return TokenCode.GREATER_EQUAL;
+			}
+			else if (str.equals("=>")){
+				return TokenCode.IMPLICATION;
 			}
 			else if (str.equals(":=")){
 				return TokenCode.ASSIGN;
@@ -470,6 +474,9 @@ class Lexer {
 			else if (str.equals("return")) {
 				return TokenCode.RETURN;
 			}
+			else if (str.equals("length")) {
+				return TokenCode.LENGTH;
+			}
 		}
 		if (str.length() == 7) {
 			if (str.equals("readInt")) {
@@ -491,7 +498,7 @@ class Lexer {
 
 	public static void main(String[] args) {
 		// Путь к файлу
-		String filePath = "test.d";
+		String filePath = "test7.d";
 
 		try {
 			// Чтение содержимого файла в строку
