@@ -44,7 +44,7 @@ class Token {
 	}
 
 	public void fullPrint() {
-		System.out.println(code + " [Line:" + span.lineNum + " pos: " + span.posBegin + ":" + span.posEnd + "]");
+		System.out.println(code + " [Line:" + span.lineNum + " pos: " + span.getPosBegin() + ":" + span.getPosEnd() + "]");
 	}
 
 }
@@ -63,7 +63,7 @@ class Identifier extends Token {
 	}
 
 	public void fullPrint() {
-		System.out.println(code + " [Val: " + this.identifier + "]" + " [Line:" + span.lineNum + " pos: " + span.posBegin + ":" + span.posEnd + "]");
+		System.out.println(code + " [Val: " + this.identifier + "]" + " [Line:" + span.lineNum + " pos: " + span.getPosBegin() + ":" + span.getPosEnd() + "]");
 	}
 }
 
@@ -81,7 +81,7 @@ class RealToken extends Token {
 	}
 
 	public void fullPrint() {
-		System.out.println(code + " [Val: " + this.value + "]" + " [Line:" + span.lineNum + " pos: " + span.posBegin + ":" + span.posEnd + "]");
+		System.out.println(code + " [Val: " + this.value + "]" + " [Line:" + span.lineNum + " pos: " + span.getPosBegin() + ":" + span.getPosEnd() + "]");
 	}
 }
 
@@ -98,7 +98,7 @@ class BooleanToken extends Token {
 	}
 
 	public void fullPrint() {
-		System.out.println(code + " [Val: " + this.value + "]" + " [Line:" + span.lineNum + " pos: " + span.posBegin + ":" + span.posEnd + "]");
+		System.out.println(code + " [Val: " + this.value + "]" + " [Line:" + span.lineNum + " pos: " + span.getPosBegin() + ":" + span.getPosEnd() + "]");
 	}
 }
 
@@ -115,7 +115,7 @@ class IntegerToken extends Token {
 	}
 
 	public void fullPrint() {
-		System.out.println(code + " [Val: " + this.value + "]" + " [Line:" + span.lineNum + " pos: " + span.posBegin + ":" + span.posEnd + "]");
+		System.out.println(code + " [Val: " + this.value + "]" + " [Line:" + span.lineNum + " pos: " + span.getPosBegin() + ":" + span.getPosEnd() + "]");
 	}
 }
 
@@ -133,7 +133,7 @@ class StringToken extends Token {
 	}
 
 	public void fullPrint() {
-		System.out.println(code + " [Val: " + this.value + "]" + " [Line:" + span.lineNum + " pos: " + span.posBegin + ":" + span.posEnd + "]");
+		System.out.println(code + " [Val: " + this.value + "]" + " [Line:" + span.lineNum + " pos: " + span.getPosBegin() + ":" + span.getPosEnd() + "]");
 	}
 }
 
@@ -309,6 +309,7 @@ class Lexer {
 				return;
 			}
 			tokenFind().print();
+//			tokenFind().fullPrint();
 		}
 	}
 
