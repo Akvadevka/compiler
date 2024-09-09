@@ -1,3 +1,15 @@
+import java.util.Arrays;
+import java.util.List;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+
+class LexerException extends RuntimeException {
+	public LexerException(String message) {
+		super(message);
+	}
+}
+
 class Span {
 	public long lineNum;
 	public int posBegin, posEnd;
@@ -104,94 +116,215 @@ enum TokenCode {
 
 class Lexer {
 
+	private final String code; // Код который мы чекаем
+	private int lineNum = 0; // На какой сейчас строчке стоит поинт (для span)
+	private int currentCharNum = 0; // На каком индексе сейчас находимся
+	List<Character> symbolList = Arrays.asList('(', ')', ',', '+', '/', '-', '=', ':', ';'); //Ахуевшие символы, которые надо проверять отдельно, т.к. они могу стоять без пробела
+
+	public Lexer (String code) {
+		this.code = code;
+	}
+
+	private void spacesDelete() {
+		while (this.currentCharNum < this.code.length() && Character.isWhitespace(this.code.charAt(this.currentCharNum))) {
+			if (this.code.charAt(this.currentCharNum) == '\n') lineNum++;
+			currentCharNum++;
+		}
+	}
+
+	private void findWordEnd() {
+		while(this.currentCharNum < this.code.length() && !Character.isWhitespace(this.code.charAt(this.currentCharNum)) && (!specSymbolCheck(this.currentCharNum))) {
+//			System.out.println(specSymbolCheck(this.currentCharNum));
+//			System.out.println(code.charAt(this.currentCharNum));
+			currentCharNum++;
+		}
+	}
+
+
+	private boolean digitCheck(Span span) {
+		for (int i = span.posBegin; i < span.posEnd; i++) {
+			if (!(Character.isDigit(this.code.charAt(i)) || this.code.charAt(i) == '.' || this.code.charAt(i) == ',')) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	private int numberDelimCounter(Span span) {
+		int delNum = 0;
+		for (int i = span.posBegin; i < span.posEnd; i++) {
+			if (this.code.charAt(i) == '.' || this.code.charAt(i) == ',') delNum++;
+		}
+		return delNum;
+	}
+
+	private Token scanNumber(Span span) {
+		if (numberDelimCounter(span) > 1) {
+			throw new LexerException("Invalid real number format at line " + this.lineNum);
+		} else if (numberDelimCounter(span) == 1) {
+			double value = Double.valueOf(this.code.substring(span.posBegin, span.posEnd));
+			return new RealToken(value, span);
+		} else {
+			int value = Integer.valueOf(this.code.substring(span.posBegin, span.posEnd));
+			return new IntegerToken(value, span);
+		}
+	}
+
+	private boolean specSymbolCheck(int num) {
+        return symbolList.contains(this.code.charAt(num));
+    }
+
+//	private Token stringTokenFind() {
+//		while () {
+//
+//		}
+//	}
+
+
+	public Token tokenFind() {
+		spacesDelete();
+
+		int firstCharNum = currentCharNum;
+
+//		if (code.charAt(this.currentCharNum) == '"') {
+//			return stringTokenFind();
+//			return new Token(token, new Span(lineNum, this.currentCharNum, this.currentCharNum+1));
+//		}
+
+		if (specSymbolCheck(this.currentCharNum)) {
+			int offset = 1;
+			if (specSymbolCheck(this.currentCharNum+1)) offset++;
+			TokenCode token = getKeywordTokenCode(this.code.substring(this.currentCharNum, this.currentCharNum+offset));
+			if (token == TokenCode.IDENTIFIER) {
+				offset = 1;
+				token = getKeywordTokenCode(this.code.substring(this.currentCharNum, this.currentCharNum+offset));
+			}
+			currentCharNum += offset;
+			return new Token(token, new Span(lineNum, this.currentCharNum, this.currentCharNum+1));
+		}
+
+		findWordEnd();
+
+		Span span = new Span(lineNum, firstCharNum, currentCharNum);
+
+		if (digitCheck(span)) {
+			return scanNumber(span);
+
+		}
+		String word = this.code.substring(span.posBegin, span.posEnd).toLowerCase();
+		TokenCode token = getKeywordTokenCode(word);
+
+		if (token == TokenCode.IDENTIFIER) {
+			return new Identifier(word, span);
+		}
+
+		if (token == TokenCode.TRUE) {
+			return new BooleanToken(true, span);
+		}
+
+		if (token == TokenCode.FALSE) {
+			return new BooleanToken(false, span);
+		}
+
+		return new Token(token, span);
+
+	}
+
+	public void start() {
+		while (true) {
+			if (currentCharNum >= code.length()) {
+				return;
+			}
+			System.out.println(tokenFind().code);
+		}
+	}
+
+
 	private TokenCode getKeywordTokenCode(String str) {
 		if (str.length() == 1) {
 			if (str.equals("<")){
-				return TokenCode.LESS
+				return TokenCode.LESS;
 			}
 			else if (str.equals(">")){
-				return TokenCode.GREATER
-			}
-			else if (str.equals(">")){
-				return TokenCode.GREATER
+				return TokenCode.GREATER;
 			}
 			else if (str.equals("=")){
-				return TokenCode.EQUAL
+				return TokenCode.EQUAL;
 			}
 			else if (str.equals("*")){
-				return TokenCode.MULTIPLY
+				return TokenCode.MULTIPLY;
 			}
 			else if (str.equals("/")){
-				return TokenCode.DIVIDE
+				return TokenCode.DIVIDE;
 			}
 			else if (str.equals("-")){
-				return TokenCode.MINUS
+				return TokenCode.MINUS;
 			}
 			else if (str.equals("+")){
-				return TokenCode.PLUS
+				return TokenCode.PLUS;
 			}
 			else if (str.equals("(")){
-				return TokenCode.LPAREN
+				return TokenCode.LPAREN;
 			}
 			else if (str.equals(")")){
-				return TokenCode.RPAREN
+				return TokenCode.RPAREN;
 			}
 			else if (str.equals("[")){
-				return TokenCode.LBRACKET
+				return TokenCode.LBRACKET;
 			}
 			else if (str.equals("]")){
-				return TokenCode.RBRACKET
+				return TokenCode.RBRACKET;
 			}
 			else if (str.equals("{")){
-				return TokenCode.LBRACE
+				return TokenCode.LBRACE;
 			}
 			else if (str.equals("}")){
-				return TokenCode.RBRACE
+				return TokenCode.RBRACE;
 			}
 			else if (str.equals(".")){
-				return TokenCode.DOT
-			}
-			else if (str.equals("..")){
-				return TokenCode.TWO_DOT
+				return TokenCode.DOT;
 			}
 			else if (str.equals(",")){
-				return TokenCode.COMMA
+				return TokenCode.COMMA;
      		}
 			else if (str.equals(";")){
-				return TokenCode.SEMICOLON
+				return TokenCode.SEMICOLON;
 			}
 			else if (str.equals("'")){
-				return TokenCode.QUOTE
+				return TokenCode.QUOTE;
 			}
-			else if (str.equals('"')){
-				return TokenCode.DOUBLE_QUOTE
+			else if (str.equals("\"")){
+				return TokenCode.DOUBLE_QUOTE;
 			}
 
 		}
 		if (str.length() == 2) {
 			if (str.equals("<=")){
-				return TokenCode.LESS_EQUAL
+				return TokenCode.LESS_EQUAL;
+			}
+			else if (str.equals("..")){
+				return TokenCode.TWO_DOT;
 			}
 			else if (str.equals(">=")){
-				return TokenCode.GREATER_EQUAL
+				return TokenCode.GREATER_EQUAL;
 			}
 			else if (str.equals(":=")){
-				return TokenCode.ASSIGN
+				return TokenCode.ASSIGN;
 			}
 			else if (str.equals("/=")){
-				return TokenCode.NOT_EQUAL
+				return TokenCode.NOT_EQUAL;
 			}
 			else if (str.equals("or")){
-				return TokenCode.OR
+				return TokenCode.OR;
 			}
 			else if (str.equals("if")){
-				return TokenCode.IF
+				return TokenCode.IF;
 			}
 			else if (str.equals("in")){
-				return TokenCode.IN
+				return TokenCode.IN;
 			}
 			else if (str.equals("is")){
-				return TokenCode.IS
+				return TokenCode.IS;
 			}
 		}
 		if (str.length() == 3) {
@@ -278,6 +411,27 @@ class Lexer {
 			}
 		}
 		return TokenCode.IDENTIFIER;
+	}
+
+	public static void main(String[] args) {
+		// Путь к файлу
+		String filePath = "test.d";
+
+		try {
+			// Чтение содержимого файла в строку
+			String str = new String(Files.readAllBytes(Paths.get(filePath)));
+
+			// Передача строки в конструктор Lexer
+			Lexer lexer = new Lexer(str);
+			lexer.start();
+
+			// Ваши действия с объектом Lexer
+
+		} catch (IOException e) {
+			// Обработка ошибки, если файл не найден или произошла ошибка ввода/вывода
+			System.out.println("Ошибка чтения файла: " + e.getMessage());
+		}
+
 	}
 
 }
