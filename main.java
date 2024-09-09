@@ -1,3 +1,4 @@
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.io.IOException;
@@ -288,7 +289,7 @@ class Lexer {
 		TokenCode token = getKeywordTokenCode(word);
 
 		if (token == TokenCode.IDENTIFIER) {
-			return new Identifier(word, span);
+			return new Identifier(this.code.substring(span.posBegin, span.posEnd), span);
 		}
 
 		if (token == TokenCode.TRUE) {
@@ -303,16 +304,16 @@ class Lexer {
 
 	}
 
-	public void start() {
+	public List<Token> start() {
+		List<Token> tokenList = new ArrayList<>();
 		while (true) {
-			if (currentCharNum >= code.length()) {
-				return;
+			Token token = tokenFind();
+			tokenList.add(token);
+			token.print();
+//			token.fullPrint();
+			if (token.code == TokenCode.EOF) {
+				return tokenList;
 			}
-//			Token token = tokenFind();
-//			List<Token> tokenList = new List(Token);
-//			tokenList.add(token);
-			tokenFind().print();
-//			tokenFind().fullPrint();
 		}
 	}
 
@@ -498,23 +499,30 @@ class Lexer {
 
 	public static void main(String[] args) {
 		// Путь к файлу
-		String filePath = "test7.d";
 
-		try {
-			// Чтение содержимого файла в строку
-			String str = new String(Files.readAllBytes(Paths.get(filePath)));
+		for (int i = 0; i <= 7; i++) {
+			String filePath = "test" + i + ".d";
 
-			// Передача строки в конструктор Lexer
-			Lexer lexer = new Lexer(str);
-			lexer.start();
+			System.out.println();
+			System.out.println();
+			System.out.println("-----------------  " + "test" + i + ".d" + "  --------------------");
+			System.out.println();
+			System.out.println();
 
-			// Ваши действия с объектом Lexer
+			try {
+				// Чтение содержимого файла в строку
+				String str = new String(Files.readAllBytes(Paths.get(filePath)));
 
-		} catch (IOException e) {
-			// Обработка ошибки, если файл не найден или произошла ошибка ввода/вывода
-			System.out.println("Ошибка чтения файла: " + e.getMessage());
+				// Передача строки в конструктор Lexer
+				Lexer lexer = new Lexer(str);
+				List<Token> tokenList = lexer.start();
+
+				// Ваши действия с объектом Lexer
+
+			} catch (IOException e) {
+				// Обработка ошибки, если файл не найден или произошла ошибка ввода/вывода
+				System.out.println("Ошибка чтения файла: " + e.getMessage());
+			}
 		}
-
 	}
 }
-//hello antoshka
