@@ -19,6 +19,14 @@ class Span {
 		this.posBegin = posBegin;
 		this.posEnd = posEnd;
 	}
+
+	public int getPosBegin() {
+		return posBegin + 1;
+	}
+
+	public int getPosEnd() {
+		return posEnd + 1;
+	}
 }
 
 class Token {
@@ -35,6 +43,10 @@ class Token {
 		System.out.print(code + " ");
 	}
 
+	public void fullPrint() {
+		System.out.println(code + " [Line:" + span.lineNum + " pos: " + span.posBegin + ":" + span.posEnd + "]");
+	}
+
 }
 
 
@@ -48,6 +60,10 @@ class Identifier extends Token {
 
 	public void print() {
 		System.out.print(code + "[" + this.identifier + "] ");
+	}
+
+	public void fullPrint() {
+		System.out.println(code + " [Val: " + this.identifier + "]" + " [Line:" + span.lineNum + " pos: " + span.posBegin + ":" + span.posEnd + "]");
 	}
 }
 
@@ -63,6 +79,10 @@ class RealToken extends Token {
 	public void print() {
 		System.out.print(code + "[" + this.value + "] ");
 	}
+
+	public void fullPrint() {
+		System.out.println(code + " [Val: " + this.value + "]" + " [Line:" + span.lineNum + " pos: " + span.posBegin + ":" + span.posEnd + "]");
+	}
 }
 
 class BooleanToken extends Token {
@@ -75,6 +95,10 @@ class BooleanToken extends Token {
 
 	public void print() {
 		System.out.print(code + "[" + this.value + "] ");
+	}
+
+	public void fullPrint() {
+		System.out.println(code + " [Val: " + this.value + "]" + " [Line:" + span.lineNum + " pos: " + span.posBegin + ":" + span.posEnd + "]");
 	}
 }
 
@@ -89,6 +113,10 @@ class IntegerToken extends Token {
 	public void print() {
 		System.out.print(code + "[" + this.value + "] ");
 	}
+
+	public void fullPrint() {
+		System.out.println(code + " [Val: " + this.value + "]" + " [Line:" + span.lineNum + " pos: " + span.posBegin + ":" + span.posEnd + "]");
+	}
 }
 
 
@@ -102,6 +130,10 @@ class StringToken extends Token {
 
 	public void print() {
 		System.out.print(code + "[" + this.value + "] ");
+	}
+
+	public void fullPrint() {
+		System.out.println(code + " [Val: " + this.value + "]" + " [Line:" + span.lineNum + " pos: " + span.posBegin + ":" + span.posEnd + "]");
 	}
 }
 
@@ -141,7 +173,7 @@ enum TokenCode {
 class Lexer {
 
 	private final String code; // Код который мы чекаем
-	private int lineNum = 0; // На какой сейчас строчке стоит поинт (для span)
+	private int lineNum = 1; // На какой сейчас строчке стоит поинт (для span)
 	private int currentCharNum = 0; // На каком индексе сейчас находимся
 	List<Character> symbolList = Arrays.asList('(', ')', ',', '+', '/', '-', '=', ':', ';'); //Ахуевшие символы, которые надо проверять отдельно, т.к. они могу стоять без пробела
 
@@ -203,8 +235,8 @@ class Lexer {
     }
 
 	private Token stringTokenFind() {
-		int startNum = this.currentCharNum;
 		this.currentCharNum++;
+		int startNum = this.currentCharNum;
 		while (code.charAt(this.currentCharNum) != '"') {
 			if (code.charAt(this.currentCharNum) == '\n') {
 				lineNum++;
