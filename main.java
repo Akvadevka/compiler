@@ -31,6 +31,10 @@ class Token {
 		this.span = span;
 	}
 
+	public void print() {
+		System.out.print(code + " ");
+	}
+
 }
 
 
@@ -40,6 +44,10 @@ class Identifier extends Token {
 	public Identifier(String identifier, Span span) {
 		super(TokenCode.IDENTIFIER, span);
 		this.identifier = identifier;
+	}
+
+	public void print() {
+		System.out.print(code + "[" + this.identifier + "] ");
 	}
 }
 
@@ -51,6 +59,10 @@ class RealToken extends Token {
 		super(TokenCode.REAL_LITERAL, span);
 		this.value = value;
 	}
+
+	public void print() {
+		System.out.print(code + "[" + this.value + "] ");
+	}
 }
 
 class BooleanToken extends Token {
@@ -59,6 +71,10 @@ class BooleanToken extends Token {
 	public BooleanToken(boolean value, Span span) {
 		super(TokenCode.BOOLEAN_LITERAL, span);
 		this.value = value;
+	}
+
+	public void print() {
+		System.out.print(code + "[" + this.value + "] ");
 	}
 }
 
@@ -69,6 +85,10 @@ class IntegerToken extends Token {
 		super(TokenCode.INTEGER_LITERAL, span);
 		this.value = value;
 	}
+
+	public void print() {
+		System.out.print(code + "[" + this.value + "] ");
+	}
 }
 
 
@@ -78,6 +98,10 @@ class StringToken extends Token {
 	public StringToken(String value, Span span) {
 		super(TokenCode.STRING_LITERAL, span);
 		this.value = value;
+	}
+
+	public void print() {
+		System.out.print(code + "[" + this.value + "] ");
 	}
 }
 
@@ -127,7 +151,11 @@ class Lexer {
 
 	private void spacesDelete() {
 		while (this.currentCharNum < this.code.length() && Character.isWhitespace(this.code.charAt(this.currentCharNum))) {
-			if (this.code.charAt(this.currentCharNum) == '\n') lineNum++;
+			if (this.code.charAt(this.currentCharNum) == '\n') {
+				lineNum++;
+				System.out.println();
+			}
+
 			currentCharNum++;
 		}
 	}
@@ -162,10 +190,10 @@ class Lexer {
 		if (numberDelimCounter(span) > 1) {
 			throw new LexerException("Invalid real number format at line " + this.lineNum);
 		} else if (numberDelimCounter(span) == 1) {
-			double value = Double.valueOf(this.code.substring(span.posBegin, span.posEnd));
+			double value = Double.valueOf(this.code.substring(span.posBegin, span.posEnd).replace(',', '.'));
 			return new RealToken(value, span);
 		} else {
-			int value = Integer.valueOf(this.code.substring(span.posBegin, span.posEnd));
+			int value = Integer.valueOf(this.code.substring(span.posBegin, span.posEnd).replace(',', '.'));
 			return new IntegerToken(value, span);
 		}
 	}
@@ -174,22 +202,35 @@ class Lexer {
         return symbolList.contains(this.code.charAt(num));
     }
 
-//	private Token stringTokenFind() {
-//		while () {
-//
-//		}
-//	}
+	private Token stringTokenFind() {
+		int startNum = this.currentCharNum;
+		this.currentCharNum++;
+		while (code.charAt(this.currentCharNum) != '"') {
+			if (code.charAt(this.currentCharNum) == '\n') {
+				lineNum++;
+				System.out.println();
+			}
+			currentCharNum++;
+		}
+		String value = code.substring(startNum, currentCharNum);
+		Span span = new Span(lineNum, startNum, currentCharNum);
+		currentCharNum++;
+		return new StringToken(value, span);
+	}
 
 
 	public Token tokenFind() {
 		spacesDelete();
 
+		if (this.currentCharNum >= code.length() ) {
+			return new Token(TokenCode.EOF, new Span(lineNum, currentCharNum, currentCharNum));
+		}
+
 		int firstCharNum = currentCharNum;
 
-//		if (code.charAt(this.currentCharNum) == '"') {
-//			return stringTokenFind();
-//			return new Token(token, new Span(lineNum, this.currentCharNum, this.currentCharNum+1));
-//		}
+		if (code.charAt(this.currentCharNum) == '"') {
+			return stringTokenFind();
+		}
 
 		if (specSymbolCheck(this.currentCharNum)) {
 			int offset = 1;
@@ -235,7 +276,7 @@ class Lexer {
 			if (currentCharNum >= code.length()) {
 				return;
 			}
-			System.out.println(tokenFind().code);
+			tokenFind().print();
 		}
 	}
 
