@@ -94,4 +94,19 @@ enum TokenCode {
 }
 
 
-//test
+class Lexer {
+
+	private TokenCode getKeywordTokenCode(String str) {
+		if (str.length() == 3) {
+			if (str.equals("and")) {
+				return TokenCode.AND;
+			} else if (str.equals("for")) {
+				return TokenCode.FOR;
+			} else {
+				return TokenCode.IDENTIFIER;
+			}
+		}
+		return TokenCode.IDENTIFIER;
+	}
+
+}
