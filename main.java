@@ -171,7 +171,6 @@ enum TokenCode {
 
 
 class Lexer {
-
 	private final String code; // Код который мы чекаем
 	private int lineNum = 1; // На какой сейчас строчке стоит поинт (для span)
 	private int currentCharNum = 0; // На каком индексе сейчас находимся
@@ -266,7 +265,7 @@ class Lexer {
 
 		if (specSymbolCheck(this.currentCharNum)) {
 			int offset = 1;
-			if (specSymbolCheck(this.currentCharNum+1)) offset++;
+			if (this.currentCharNum+1 < code.length() && specSymbolCheck(this.currentCharNum+1)) offset++;
 			TokenCode token = getKeywordTokenCode(this.code.substring(this.currentCharNum, this.currentCharNum+offset));
 			if (token == TokenCode.IDENTIFIER) {
 				offset = 1;
@@ -308,6 +307,9 @@ class Lexer {
 			if (currentCharNum >= code.length()) {
 				return;
 			}
+//			Token token = tokenFind();
+//			List<Token> tokenList = new List(Token);
+//			tokenList.add(token);
 			tokenFind().print();
 //			tokenFind().fullPrint();
 		}
