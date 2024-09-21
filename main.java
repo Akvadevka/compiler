@@ -177,6 +177,7 @@ class Lexer {
 	private final String code; // Код который мы чекаем
 	private int lineNum = 1; // На какой сейчас строчке стоит поинт (для span)
 	private int currentCharNum = 0; // На каком индексе сейчас находимся
+
 	List<Character> symbolList = Arrays.asList('(', ')', ',', '+', '/', '-', '=', ':', ';', '>', '<', '[', ']', '{', '}', '.');
 
 	public Lexer (String code) {
@@ -225,7 +226,7 @@ class Lexer {
 			double value = Double.valueOf(this.code.substring(span.posBegin, span.posEnd).replace(',', '.'));
 			return new RealToken(value, span);
 		} else {
-			int value = Integer.valueOf(this.code.substring(span.posBegin, span.posEnd));
+			int value = Integer.valueOf(this.code.substring(span.posBegin, span.posEnd).replace(',', '.'));
 			return new IntegerToken(value, span);
 		}
 	}
@@ -309,7 +310,6 @@ class Lexer {
 			Token token = tokenFind();
 			tokenList.add(token);
 			token.print();
-			//token.fullPrint();
 			if (token.code == TokenCode.EOF) {
 				return tokenList;
 			}
@@ -774,3 +774,4 @@ class LiteralNode extends Node {
 		return value.toString();
 	}
 }
+
