@@ -4,6 +4,7 @@ import java.util.List;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.stream.Collectors;
 
 class LexerException extends RuntimeException {
 	public LexerException(String message) {
@@ -148,7 +149,7 @@ enum TokenCode {
 	TRUE, FALSE, EMPTY,
 
 	// Типы данных
-	INT, REAL, BOOL, STRING, VECTOR_TYPE, TUPLE_TYPE, FUNCTION_TYPE,
+	INT, REAL, BOOL, STRING,
 
 	// Операторы
 	ASSIGN, PLUS, MINUS, MULTIPLY, DIVIDE,
@@ -176,7 +177,8 @@ class Lexer {
 	private final String code; // Код который мы чекаем
 	private int lineNum = 1; // На какой сейчас строчке стоит поинт (для span)
 	private int currentCharNum = 0; // На каком индексе сейчас находимся
-	List<Character> symbolList = Arrays.asList('(', ')', ',', '+', '/', '-', '=', ':', ';', '>', '<', '[', ']', '{', '}', '.'); //Ахуевшие символы, которые надо проверять отдельно, т.к. они могу стоять без пробела
+
+	List<Character> symbolList = Arrays.asList('(', ')', ',', '+', '/', '-', '=', ':', ';', '>', '<', '[', ']', '{', '}', '.');
 
 	public Lexer (String code) {
 		this.code = code;
@@ -195,8 +197,6 @@ class Lexer {
 
 	private void findWordEnd() {
 		while(this.currentCharNum < this.code.length() && !Character.isWhitespace(this.code.charAt(this.currentCharNum)) && (!specSymbolCheck(this.currentCharNum))) {
-//			System.out.println(specSymbolCheck(this.currentCharNum));
-//			System.out.println(code.charAt(this.currentCharNum));
 			currentCharNum++;
 		}
 	}
@@ -274,7 +274,7 @@ class Lexer {
 				token = getKeywordTokenCode(this.code.substring(this.currentCharNum, this.currentCharNum+offset));
 			}
 			currentCharNum += offset;
-			return new Token(token, new Span(lineNum, this.currentCharNum, this.currentCharNum+1));
+			return new Token(token, new Span(lineNum, this.currentCharNum, this.currentCharNum+offset));
 		}
 
 		findWordEnd();
@@ -310,7 +310,6 @@ class Lexer {
 			Token token = tokenFind();
 			tokenList.add(token);
 			token.print();
-//			token.fullPrint();
 			if (token.code == TokenCode.EOF) {
 				return tokenList;
 			}
@@ -526,3 +525,253 @@ class Lexer {
 		}
 	}
 }
+
+
+// Базовый класс для всех узлов AST
+abstract class Node {
+	// Список дочерних узлов
+	protected List<Node> children = new ArrayList<>();
+
+	// Добавление дочернего узла
+	public void addChild(Node child) {
+		children.add(child);
+	}
+
+	// Визуализация дерева в виде строки
+	public abstract String toString();
+
+	// Получение списка дочерних узлов
+	public List<Node> getChildren() {
+		return children;
+	}
+}
+
+class ProgramNode extends Node {
+	private final List<Node> statements;
+
+	public ProgramNode() {
+		this.statements = new ArrayList<>();
+	}
+
+	public void addStatement(Node statement) {
+		this.statements.add(statement);
+	}
+
+	@Override
+	public String toString() {
+		StringBuilder sb = new StringBuilder("Program: \n");
+		for (Node stmt : statements) {
+			sb.append(stmt.toString()).append("\n");
+		}
+		return sb.toString();
+	}
+}
+
+// Базовый класс для всех деклараций
+abstract class DeclarationNode extends Node {
+	// Тип декларации: переменная, функция, тип
+	public enum DeclarationType {
+		VARIABLE,
+		FUNCTION
+	}
+
+	protected DeclarationType declarationType;
+
+	public DeclarationType getDeclarationType() {
+		return declarationType;
+	}
+
+	// Метод для печати узла (должен быть реализован в подклассах)
+	@Override
+	public abstract String toString();
+}
+
+class ExpressionNode extends Node {
+	private final Node leftOperand;
+	private final String operator;
+	private final Node rightOperand;
+
+	public ExpressionNode(Node leftOperand, String operator, Node rightOperand) {
+		this.leftOperand = leftOperand;
+		this.operator = operator;
+		this.rightOperand = rightOperand;
+	}
+
+	@Override
+	public String toString() {
+		return leftOperand.toString() + " " + operator + " " + rightOperand.toString();
+	}
+}
+
+class VariableDeclarationNode extends DeclarationNode {
+	String variableName;
+	ExpressionNode initializer; // Если переменной присваивается значение при объявлении
+
+	VariableDeclarationNode(String variableName, String variableType, ExpressionNode initializer) {
+
+        this.variableName = variableName;
+		this.initializer = initializer;
+	}
+
+	@Override
+	public String toString() {
+		return variableName + (initializer != null ? " = " + initializer.toString() : "");
+	}
+}
+
+class FunctionDeclarationNode extends DeclarationNode {
+	String functionName;
+	List<VariableDeclarationNode> parameters;
+	Node functionBody;
+
+	FunctionDeclarationNode(String functionName, List<VariableDeclarationNode> parameters, Node functionBody) {
+		this.functionName = functionName;
+		this.parameters = parameters;
+		this.functionBody = functionBody;
+	}
+
+	@Override
+	public String toString() {
+		String params = parameters.stream().map(Object::toString).collect(Collectors.joining(", "));
+		return functionName + "(" + params + ") " + functionBody.toString();
+	}
+}
+
+
+class AssignmentNode extends Node {
+	private final String variableName;
+	private final Node expression;
+
+	public AssignmentNode(String variableName, Node expression) {
+		this.variableName = variableName;
+		this.expression = expression;
+	}
+
+	@Override
+	public String toString() {
+		return variableName + " := " + expression.toString();
+	}
+}
+
+abstract class StatementNode extends Node {
+	private final String statementType;
+
+	public StatementNode(String statementType) {
+		this.statementType = statementType;
+	}
+	public String getStatementType() {
+		return statementType;
+	}
+	@Override
+	public String toString() {
+		return "statement";
+	}
+}
+
+
+class IfNode extends StatementNode {
+	private final Node condition;
+	private final Node thenBody;
+	private final Node elseBody;
+
+	public IfNode(Node condition, Node thenBody, Node elseBody) {
+        super("if");
+        this.condition = condition;
+		this.thenBody = thenBody;
+		this.elseBody = elseBody;
+	}
+
+	@Override
+	public String toString() {
+		StringBuilder sb = new StringBuilder("If ").append(condition.toString()).append(" Then: \n");
+		sb.append(thenBody.toString());
+		if (elseBody != null) {
+			sb.append("\nElse: ").append(elseBody.toString());
+		}
+		return sb.toString();
+	}
+}
+
+class WhileLoopNode extends StatementNode {
+	private final Node condition;
+	private final Node body;
+
+	public WhileLoopNode(Node condition, Node body) {
+        super("while");
+        this.condition = condition;
+		this.body = body;
+	}
+
+	@Override
+	public String toString() {
+		return "While " + condition.toString() + " loop: \n" + body.toString();
+	}
+}
+
+class ForLoopNode extends StatementNode {
+	private final Node initialization; // Инициализация (например, i = 1)
+	private final Node start;      // Условие (например, i <= arr.length)
+	private final Node end;      // Условие (например, i <= arr.length)
+	private final Node body;           // Тело цикла (например, print arr[i])
+
+	public ForLoopNode(Node initialization, Node start, Node end, Node body) {
+        super("for");
+        this.initialization = initialization;
+		this.start = start;
+		this.end = end;
+		this.body = body;
+	}
+
+	@Override
+	public String toString() {
+		return "For (" + initialization.toString() + "; " + start.toString() + "; " + end.toString() + ")";
+
+	}
+
+    public Node getBody() {
+        return body;
+    }
+}
+
+class ReturnNode extends StatementNode {
+	private final Node expression;
+
+	public ReturnNode(Node expression) {
+        super("return");
+        this.expression = expression;
+	}
+
+	@Override
+	public String toString() {
+		return "return " + (expression != null ? expression.toString() : "");
+	}
+}
+
+class PrintNode extends StatementNode {
+	private final Node expression;
+
+	public PrintNode(Node expression) {
+        super("print");
+        this.expression = expression;
+	}
+
+	@Override
+	public String toString() {
+		return "print " + expression.toString();
+	}
+}
+
+
+class LiteralNode extends Node {
+	private final Object value;
+
+	public LiteralNode(Object value) {
+		this.value = value;
+	}
+
+	@Override
+	public String toString() {
+		return value.toString();
+	}
+}
+
