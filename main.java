@@ -194,18 +194,20 @@ class BlockNode extends Node {
 
 class FunctionDeclarationNode extends DeclarationNode {
 	String functionName;
-	List<VariableDeclarationNode> parameters;
+	List<VariableDeclarationNode > parameters;
 	Node functionBody;
 
-	FunctionDeclarationNode(String functionName, List<VariableDeclarationNode> parameters, Node functionBody) {
+	FunctionDeclarationNode(String functionName, List<VariableDeclarationNode > parameters, Node functionBody) {
 		this.functionName = functionName;
 		this.parameters = parameters;
 		this.functionBody = functionBody;
 
-		addChild(functionBody); // Добавляем body в дочерние узлы
 		for (Node param : parameters) {
 			addChild(param); // Добавляем параметры в дочерние узлы
 		}
+
+		addChild(functionBody); // Добавляем body в дочерние узлы
+
 	}
 
 	@Override
@@ -431,7 +433,6 @@ class Parser {
 		current--;
 	}
 
-	// Метод для разбора всей программы
 	public ProgramNode parseProgram() {
 		ProgramNode program = new ProgramNode();
 		while (current < tokens.size()) {
@@ -445,6 +446,8 @@ class Parser {
 				program.addStatement(parseWhile());
 			} else if (getCurrentToken().code == TokenCode.IF) {
 				program.addStatement(parseIf());
+			} else if (getCurrentToken().code == TokenCode.FUNC) {
+				program.addStatement(parseFunction());
 			}
 			else {
 				current++;
@@ -454,37 +457,37 @@ class Parser {
 		return program;
 	}
 
-	// Разбор объявления переменных
+
 	private VariableDeclarationNode parseDeclaration() {
 		advance(); // Пропускаем 'var'
-		Identifier variableName = (Identifier) getCurrentToken(); // Имя переменной
+		Identifier variableName = (Identifier) getCurrentToken();
 		advance(); // Пропускаем идентификатор
 
 		if (getCurrentToken().code == TokenCode.ASSIGN) {
 			advance(); // Пропускаем '='
-			ExpressionNode initializer = (ExpressionNode) parseExpression(); // Разбор выражения
+			ExpressionNode initializer = (ExpressionNode) parseExpression();
 			return new VariableDeclarationNode(variableName.identifier, initializer);
 		} else {
-			return new VariableDeclarationNode(variableName.identifier, null); // Без инициализации
+			return new VariableDeclarationNode(variableName.identifier, null);
 		}
 	}
 
 	// Разбор цикла for
 	private ForLoopNode parseFor() {
 		advance(); // Пропускаем 'for'
-		Identifier variableName = (Identifier) getCurrentToken(); // Имя счетчика
+		Identifier variableName = (Identifier) getCurrentToken();
 		advance(); // Пропускаем идентификатор
 
 		if (getCurrentToken().code == TokenCode.IN) {
 			advance(); // Пропускаем 'in'
-			Node rangeStart = parseExpression(); // Разбор начала диапазона
+			Node rangeStart = parseExpression();
 			if (getCurrentToken().code == TokenCode.TWO_DOT) {
-				advance(); // Пропускаем 'to'
-				Node rangeEnd = parseExpression(); // Разбор конца диапазона
+				advance();
+				Node rangeEnd = parseExpression();
 				if (getCurrentToken().code == TokenCode.LOOP) {
-					advance(); // Пропускаем 'loop'
-					Node body = parseStatement(); // Разбор тела цикла
-					advance(); // Пропускаем 'end'
+					advance();
+					Node body = parseStatement();
+					advance();
 					return new ForLoopNode(new AssignmentNode(variableName.identifier, rangeStart), rangeStart, rangeEnd, body);
 				}
 				throw new ParseException("Expected 'loop', found: " + getCurrentToken());
@@ -493,6 +496,100 @@ class Parser {
 		}
 		throw new ParseException("Expected 'in', found: " + getCurrentToken());
 	}
+
+	private Node parseFunction() {
+		if (getCurrentToken().code == TokenCode.FUNC) {
+			advance(); // Пропускаем 'func'
+
+
+			if (getCurrentToken().code != TokenCode.IDENTIFIER) {
+				throw new ParseException("Expected function name, found: " + getCurrentToken());
+			}
+			Identifier functionToken = (Identifier) getCurrentToken();
+			String functionName = functionToken.identifier;
+			advance(); // Пропускаем название функции
+
+			if (getCurrentToken().code != TokenCode.LPAREN) {
+				throw new ParseException("Expected '(', found: " + getCurrentToken());
+			}
+			advance(); // Пропускаем '('
+
+			List<VariableDeclarationNode > parameters = new ArrayList<>();
+			if (getCurrentToken().code != TokenCode.RPAREN) {
+				parameters.add(parseParameter());
+
+				while (getCurrentToken().code == TokenCode.COMMA) {
+					advance(); // Пропускаем запятую
+					parameters.add(parseParameter());
+				}
+			}
+
+			if (getCurrentToken().code != TokenCode.RPAREN) {
+				throw new ParseException("Expected ')', found: " + getCurrentToken());
+			}
+			advance(); // Пропускаем ')'
+
+			if (getCurrentToken().code != TokenCode.IS) {
+				throw new ParseException("Expected 'is', found: " + getCurrentToken());
+			}
+			advance(); // Пропускаем 'is'
+
+			Node functionBody = parseBlock();
+
+			if (getCurrentToken().code != TokenCode.END) {
+				throw new ParseException("Expected 'end', found: " + getCurrentToken());
+			}
+			advance(); // Пропускаем 'end'
+
+			return new FunctionDeclarationNode(functionName, parameters, functionBody);
+		}
+
+		throw new ParseException("Expected 'func', found: " + getCurrentToken());
+	}
+
+
+	private VariableDeclarationNode parseParameter() {
+		if (getCurrentToken().code != TokenCode.IDENTIFIER) {
+			throw new ParseException("Expected parameter name, found: " + getCurrentToken());
+		}
+
+		// Считываем идентификатор параметра
+		Identifier param = (Identifier) getCurrentToken();
+		String paramName = param.identifier;
+		advance(); // Пропускаем идентификатор
+
+		ExpressionNode defaultValue = null;
+
+		// Проверяем, есть ли присвоение значения (':=')
+		if (getCurrentToken().code == TokenCode.ASSIGN) {
+			advance(); // Пропускаем ':='
+
+			// Разбираем выражение, которое является значением по умолчанию
+			Node expressionNode = parseExpression();
+
+			// Приводим результат к ExpressionNode
+			if (!(expressionNode instanceof ExpressionNode)) {
+				throw new ParseException("Expected an expression as default value, found: " + expressionNode);
+			}
+
+			defaultValue = (ExpressionNode) expressionNode;
+		}
+
+		return new VariableDeclarationNode(paramName, defaultValue);
+	}
+
+
+
+
+	private Node parseBlock() {
+		List<Node> statements = new ArrayList<>();
+		while (getCurrentToken().code != TokenCode.END) {
+			statements.add(parseStatement());
+		}
+
+		return new BlockNode(statements, "Body");
+	}
+
 
 	// Разбор цикла while
 //    private WhileLoopNode parseWhile() {
@@ -511,7 +608,7 @@ class Parser {
 	private WhileLoopNode parseWhile() {
 		advance(); // Пропускаем 'if'
 
-		Node condition = parseCondition(); // Используем новый метод для парсинга условия
+		Node condition = parseCondition();
 
 		if (getCurrentToken().code == TokenCode.LOOP) {
 			advance(); // Пропускаем 'then'
@@ -538,32 +635,32 @@ class Parser {
 	}
 
 	private IfNode parseIf() {
-		advance(); // Пропускаем 'if'
+		advance(); // Пропускаем if
 
-		Node condition = parseCondition(); // Используем новый метод для парсинга условия
+		Node condition = parseCondition();
 
 		if (getCurrentToken().code == TokenCode.THEN) {
-			advance(); // Пропускаем 'then'
+			advance(); // Пропускаем then
 
 			List<Node> thenBodyStatements = new ArrayList<>();
 			while (getCurrentToken().code != TokenCode.END && getCurrentToken().code != TokenCode.ELSE) {
 				if (getCurrentToken().code == TokenCode.SEMICOLON) {
 					advance();
 				} else {
-					thenBodyStatements.add(parseStatement()); // Разбор тела
+					thenBodyStatements.add(parseStatement());
 				}
 			}
 
 			BlockNode thenBody = new BlockNode(thenBodyStatements, "Body");
 
 			if (getCurrentToken().code == TokenCode.END) {
-				advance(); // Пропускаем 'end'
+				advance(); // Пропускаем end
 			}
 
 			List<Node> elseBodyStatements = new ArrayList<>();
 			BlockNode elseBody = null;
 			if (getCurrentToken().code == TokenCode.ELSE) {
-				advance(); // Пропускаем 'else'
+				advance(); // Пропускаем else
 				while (getCurrentToken().code != TokenCode.END) {
 					if (getCurrentToken().code == TokenCode.SEMICOLON) {
 						advance();
@@ -574,7 +671,7 @@ class Parser {
 				elseBody = new BlockNode(elseBodyStatements, "Else");
 
 				if (getCurrentToken().code == TokenCode.END) {
-					advance(); // Пропускаем 'end'
+					advance(); // Пропускаем end
 				} else {
 					throw new ParseException("Expected 'end', found: " + getCurrentToken());
 				}
@@ -589,18 +686,23 @@ class Parser {
 	// Разбор команды print
 	private PrintNode parsePrint() {
 		advance(); // Пропускаем 'print'
-		Node expression = parseExpression(); // Разбор выражения
+		Node expression = parseExpression();
 		return new PrintNode(expression);
+	}
+
+	// Разбор команды print
+	private ReturnNode parseReturn() {
+		advance(); // Пропускаем 'return'
+		Node expression = parseExpression();
+		return new ReturnNode(expression);
 	}
 
 	private Node parseIdentifier() {
 		if (getCurrentToken().code == TokenCode.IDENTIFIER) {
-			Identifier identifierToken = (Identifier) getCurrentToken(); // Получаем имя идентификатора
-			String identifierName = identifierToken.identifier; // Получаем имя идентификатора
-			advance(); // Пропускаем токен идентификатора
+			Identifier identifierToken = (Identifier) getCurrentToken();
+			String identifierName = identifierToken.identifier;
+			advance();
 
-			// Здесь можно добавить логику для обработки идентификаторов,
-			// например, создание узла переменной или обработки дополнительных токенов
 			return new IdentifierNode(identifierName);
 		}
 
@@ -609,14 +711,16 @@ class Parser {
 
 
 	private ComparisonNode parseTypeCheck() {
-		Node identifier = parseIdentifier(); // Парсим идентификатор (например, x)
+		Node identifier = parseIdentifier();
 
 		if (getCurrentToken().code == TokenCode.IS) {
 			advance(); // Пропускаем 'is'
-
-			Node typeNode = parseType(); // Метод для разбора типа (int, real и т.д.)
-
+			Node typeNode = parseType();
 			return new ComparisonNode(identifier, TokenCode.IS, typeNode);
+		} else if (getCurrentToken().code == TokenCode.IN) {
+			advance();
+			Node typeNode = parseType();
+			return new ComparisonNode(identifier, TokenCode.IN, typeNode);
 		}
 
 		throw new ParseException("Expected 'is', found: " + getCurrentToken());
@@ -634,11 +738,20 @@ class Parser {
 			case STRING:
 				advance(); // Пропускаем 'string'
 				return new LiteralNode("string");
+			case TUPLE_LITERAL:
+				advance(); // Пропускаем 'tuple'
+				return new LiteralNode("tuple");
+			case ARRAY_LITERAL:
+				advance(); // Пропускаем 'array'
+				return new LiteralNode("array");
+			case IDENTIFIER:
+				advance(); // Пропускаем 'identifier'
+				return new LiteralNode("identifier");
 			case EMPTY:
 				advance(); // Пропускаем 'empty'
 				return new LiteralNode("empty");
 			default:
-				throw new ParseException("Expected a type, found: " + getCurrentToken());
+				throw new ParseException("Expected a type, found: " + getCurrentToken().code);
 		}
 	}
 
@@ -646,122 +759,113 @@ class Parser {
 	private Node parseCondition() {
 		Node comparison = null;
 		boolean flag = true;
-		// Сначала обрабатываем потенциальную проверку типа
 		if (getCurrentToken().code == TokenCode.IDENTIFIER) {
 			advance(); // Пропускаем идентификатор
 			if (getCurrentToken().code == TokenCode.IS) {
-				rewind(); // Возвращаемся назад, если это проверка типа
-				comparison = parseTypeCheck(); // Парсим проверку типа
+				rewind(); // Возвращаемся назад
+				comparison = parseTypeCheck();
 				flag = false;
-			} else {
-				rewind(); // Возвращаемся назад, если это не проверка типа
+			} else if (getCurrentToken().code == TokenCode.IN) {
+				rewind(); // Возвращаемся назад
+				comparison = parseTypeCheck();
+				flag = false;
+			}else {
+				rewind();
 			}
 		}
 
 		if (flag) {
-			comparison = parseComparison(); // Парсим первое сравнение
+			comparison = parseComparison();
 		}
 
-		// Проверяем наличие логических операторов после сравнения
 		while (getCurrentToken().code == TokenCode.AND || getCurrentToken().code == TokenCode.OR) {
 			TokenCode logicalOperator = getCurrentToken().code;
 			advance(); // Пропускаем логический оператор
-			Node rightOperand = parseComparison(); // Парсим правую часть выражения
-			comparison = new LogicalNode(comparison, logicalOperator, rightOperand); // Создаём логическое выражение
+			Node rightOperand = parseComparison();
+			comparison = new LogicalNode(comparison, logicalOperator, rightOperand);
 		}
 
-		return comparison; // Возвращаем полное условие
+		return comparison;
 	}
 
-
-	// Разбор выражений
 
 	private Node parseComparison() {
 		// Проверяем наличие 'not'
 		if (getCurrentToken().code == TokenCode.NOT) {
 			advance(); // Пропускаем 'not'
 
-			// Проверяем наличие скобок после 'not'
 			if (getCurrentToken().code == TokenCode.LPAREN) {
 				advance(); // Пропускаем '('
-				Node innerComparison = parseComparison(); // Парсим выражение внутри скобок
+				Node innerComparison = parseComparison();
 
-				// Убедимся, что закрывающая скобка присутствует
 				if (getCurrentToken().code != TokenCode.RPAREN) {
 					throw new ParseException("Expected ')', found: " + getCurrentToken());
 				}
 				advance(); // Пропускаем ')'
-				return new NotNode(innerComparison); // Применяем 'not' ко всему выражению в скобках
+				return new NotNode(innerComparison);
 			} else {
 				System.out.println(getCurrentToken().code);
-				// Если нет скобок, парсим следующее выражение и возвращаем NotNode
-				Node innerComparison = parseComparisonWithoutLogicalOperators(); // Используем новый метод для сравнения
-				return new NotNode(innerComparison); // Применяем 'not' к этому выражению
+				Node innerComparison = parseComparisonWithoutLogicalOperators();
+				return new NotNode(innerComparison);
 			}
 		}
 
-		// Обрабатываем выражения в скобках
 		if (getCurrentToken().code == TokenCode.LPAREN) {
 			advance(); // Пропускаем '('
-			Node innerComparison = parseLogicalExpression(); // Парсим логическое выражение внутри скобок
+			Node innerComparison = parseLogicalExpression();
 			if (getCurrentToken().code != TokenCode.RPAREN) {
 				throw new ParseException("Expected ')', found: " + getCurrentToken());
 			}
 			advance(); // Пропускаем ')'
-			return innerComparison; // Возвращаем выражение в скобках
+			return innerComparison;
 		}
 
-		// Обрабатываем обычное сравнение
-		Node leftOperand = parseExpression(); // Разбираем левый операнд
+		Node leftOperand = parseExpression();
 
-		// Обрабатываем оператор сравнения
 		TokenCode operator = getCurrentToken().code;
-		if (operator == TokenCode.LESS || operator == TokenCode.GREATER || operator == TokenCode.EQUAL ||
-				operator == TokenCode.LESS_EQUAL || operator == TokenCode.GREATER_EQUAL) {
-			advance(); // Пропускаем оператор
-			Node rightOperand = parseExpression(); // Разбираем правый операнд
-			leftOperand = new ComparisonNode(leftOperand, operator, rightOperand); // Создаём узел сравнения
+		if (isComparisonOperator(operator)) {
+			advance();
+			Node rightOperand = parseExpression();
+			leftOperand = new ComparisonNode(leftOperand, operator, rightOperand);
 		}
 
-		// Обработка логических операторов
+
 		while (getCurrentToken().code == TokenCode.AND || getCurrentToken().code == TokenCode.OR) {
 			TokenCode logicalOperator = getCurrentToken().code;
 			advance(); // Пропускаем логический оператор
-			Node rightOperand = parseComparison(); // Парсим следующее выражение
-			leftOperand = new LogicalNode(leftOperand, logicalOperator, rightOperand); // Создаём узел логической операции
+			Node rightOperand = parseComparison();
+			leftOperand = new LogicalNode(leftOperand, logicalOperator, rightOperand);
 		}
 
-		return leftOperand; // Возвращаем результат сравнения
+		return leftOperand;
 	}
 
 
 
 	private Node parseComparisonWithoutLogicalOperators() {
-		Node leftOperand = parseExpression(); // Начинаем с разбора первого операнда
+		Node leftOperand = parseExpression();
 
-		// Обрабатываем оператор сравнения
 		TokenCode operator = getCurrentToken().code;
-		if (operator == TokenCode.LESS || operator == TokenCode.GREATER || operator == TokenCode.EQUAL ||
-				operator == TokenCode.LESS_EQUAL || operator == TokenCode.GREATER_EQUAL) {
+		if (isComparisonOperator(operator)) {
 			advance(); // Пропускаем оператор
-			Node rightOperand = parseExpression(); // Получаем правый операнд
-			leftOperand = new ComparisonNode(leftOperand, operator, rightOperand); // Создаем узел сравнения
+			Node rightOperand = parseExpression();
+			leftOperand = new ComparisonNode(leftOperand, operator, rightOperand);
 		}
 
-		return leftOperand; // Возвращаем результат сравнения или операнд
+		return leftOperand;
 	}
 
 	private Node parseLogicalExpression() {
-		Node leftOperand = parseComparison(); // Обрабатываем первое сравнение
+		Node leftOperand = parseComparison();
 
 		while (getCurrentToken().code == TokenCode.AND || getCurrentToken().code == TokenCode.OR) {
 			TokenCode operator = getCurrentToken().code;
 			advance(); // Пропускаем логический оператор
-			Node rightOperand = parseComparison(); // Обрабатываем следующее сравнение
-			leftOperand = new LogicalNode(leftOperand, operator, rightOperand); // Создаем узел логической операции
+			Node rightOperand = parseComparison();
+			leftOperand = new LogicalNode(leftOperand, operator, rightOperand);
 		}
 
-		return leftOperand; // Возвращаем результат логического выражения
+		return leftOperand;
 	}
 
 
@@ -778,34 +882,30 @@ class Parser {
 				code == TokenCode.EQUAL;
 	}
 
-	// Метод для разбора выражений с учетом приоритетов
+
 	private Node parseExpression() {
 		return parseExpressionWithPrecedence(0);
 	}
 
-	// Метод для обработки операторов с учетом их приоритета
 	private Node parseExpressionWithPrecedence(int precedence) {
-		Node left = parsePrimary(); // Начинаем с первичного выражения (литерал или идентификатор)
+		Node left = parsePrimary();
 
-		// Обрабатываем операторы, учитывая их приоритет
+
 		while (isOperator(getCurrentToken().code) && precedence < getPrecedence(getCurrentToken().code)) {
-			Token operator = getCurrentToken(); // Сохраняем оператор
+			Token operator = getCurrentToken();
 			advance(); // Пропускаем оператор
 
 			int operatorPrecedence = getPrecedence(operator.code);
-			Node right = parseExpressionWithPrecedence(operatorPrecedence); // Рекурсивно обрабатываем правую часть с приоритетом
+			Node right = parseExpressionWithPrecedence(operatorPrecedence);
 
-			left = new ExpressionNode(left, operator.code, right); // Создаем новое бинарное выражение
+			left = new ExpressionNode(left, operator.code, right);
 		}
 
-		// Обрабатываем присваивание в случае, если оператором является ':=' или '='
 		if (getCurrentToken().code == TokenCode.ASSIGN) {
 			advance(); // Пропускаем ':=' или '='
 
-			// Разбираем правую часть присваивания
 			Node right = parseExpression();
 
-			// Создаем VariableDeclarationNode с инициализацией
 			if (left instanceof IdentifierNode) {
 				return new VariableDeclarationNode(((IdentifierNode) left).getName(), (ExpressionNode) right);
 			} else {
@@ -813,10 +913,10 @@ class Parser {
 			}
 		}
 
-		return left; // Возвращаем результат
+		return left;
 	}
 
-	// Метод для обработки приоритетов операторов
+
 	private int getPrecedence(TokenCode code) {
 		switch (code) {
 			case PLUS:
@@ -830,7 +930,6 @@ class Parser {
 		}
 	}
 
-	// Метод для разбора первичных выражений (литералы, идентификаторы, скобки)
 	private Node parsePrimary() {
 		if (getCurrentToken().code == TokenCode.REAL_LITERAL) {
 			RealToken realToken = (RealToken) getCurrentToken();
@@ -855,19 +954,17 @@ class Parser {
 		} else if (getCurrentToken().code == TokenCode.IDENTIFIER) {
 			Identifier identifierToken = (Identifier) getCurrentToken();
 			advance();
-			return new IdentifierNode(identifierToken.identifier); // Возвращаем идентификатор как первичное выражение
+			return new IdentifierNode(identifierToken.identifier);
 		}
 
 		throw new ParseException("Unexpected token: " + getCurrentToken().code);
 	}
-	// Метод для проверки, является ли текущий токен оператором
 	private boolean isOperator(TokenCode code) {
 		return code == TokenCode.PLUS || code == TokenCode.MINUS || code == TokenCode.MULTIPLY || code == TokenCode.DIVIDE;
 	}
 
 
 
-	// Метод для разбора команд (например, блоки кода)
 	private Node parseStatement() {
 		if (getCurrentToken().code == TokenCode.IF) {
 			return parseIf();
@@ -878,7 +975,11 @@ class Parser {
 		} else if (getCurrentToken().code == TokenCode.PRINT) {
 			return parsePrint();
 		} else if (getCurrentToken().code == TokenCode.VAR) {
-			return parseDeclaration(); // Разбор объявления переменной
+			return parseDeclaration();
+		} else if (getCurrentToken().code == TokenCode.RETURN) {
+			return parseReturn();
+		} else if (getCurrentToken().code == TokenCode.FUNC) {
+			return parseFunction();
 		}
 		throw new ParseException("Unexpected statement type: " + getCurrentToken().code);
 	}
@@ -1434,5 +1535,3 @@ class Lexer {
 		}
 	}
 }
-
-
