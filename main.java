@@ -495,42 +495,47 @@ class Parser {
 	}
 
 	// Разбор цикла while
+//    private WhileLoopNode parseWhile() {
+//        advance(); // Пропускаем 'while'
+//        Node condition = parseExpression(); // Разбор условия
+//
+//        if (getCurrentToken().code == TokenCode.LOOP) {
+//            advance(); // Пропускаем 'loop'
+//            Node body = parseStatement(); // Разбор тела цикла
+//            advance(); // Пропускаем 'end'
+//            return new WhileLoopNode(condition, body);
+//        }
+//        throw new ParseException("Expected 'loop', found: " + getCurrentToken());
+//    }
+
 	private WhileLoopNode parseWhile() {
-		advance(); // Пропускаем 'while'
-		Node condition = parseExpression(); // Разбор условия
+		advance(); // Пропускаем 'if'
+
+		Node condition = parseCondition(); // Используем новый метод для парсинга условия
 
 		if (getCurrentToken().code == TokenCode.LOOP) {
-			advance(); // Пропускаем 'loop'
-			Node body = parseStatement(); // Разбор тела цикла
-			advance(); // Пропускаем 'end'
-			return new WhileLoopNode(condition, body);
-		}
-		throw new ParseException("Expected 'loop', found: " + getCurrentToken());
-	}
+			advance(); // Пропускаем 'then'
 
-	// Разбор условного оператора
-//    private IfNode parseIf() {
-//        advance(); // Пропускаем 'if'
-//        Node condition = parseComparison(); // Разбор условия
-//        if (getCurrentToken().code == TokenCode.THEN) {
-//            advance(); // Пропускаем 'then'
-//            Node thenBody = parseStatement(); // Разбор тела
-//            Node elseBody = null;
-//
-//            if (getCurrentToken().code == TokenCode.SEMICOLON) {
-//                advance(); // Пропускаем 'SEMICOLON'
-//            } else {
-//                throw new ParseException("Expected ';', found: " + getCurrentToken());
-//            }
-//
-//            if (getCurrentToken().code == TokenCode.ELSE) {
-//                advance(); // Пропускаем 'else'
-//                elseBody = parseStatement(); // Разбор альтернативного тела
-//            }
-//            return new IfNode(condition, thenBody, elseBody);
-//        }
-//        throw new ParseException("Expected 'then', found: " + getCurrentToken());
-//    }
+			List<Node> thenBodyStatements = new ArrayList<>();
+			while (getCurrentToken().code != TokenCode.END && getCurrentToken().code != TokenCode.ELSE) {
+				if (getCurrentToken().code == TokenCode.SEMICOLON) {
+					advance();
+				} else {
+					thenBodyStatements.add(parseStatement()); // Разбор тела
+				}
+			}
+
+			BlockNode thenBody = new BlockNode(thenBodyStatements, "Body");
+
+			if (getCurrentToken().code == TokenCode.END) {
+				advance(); // Пропускаем 'end'
+			}
+
+			return new WhileLoopNode(condition, thenBody);
+		}
+
+		throw new ParseException("Expected 'then', found: " + getCurrentToken().code);
+	}
 
 	private IfNode parseIf() {
 		advance(); // Пропускаем 'if'
@@ -639,20 +644,33 @@ class Parser {
 
 
 	private Node parseCondition() {
+		Node comparison = null;
+		boolean flag = true;
+		// Сначала обрабатываем потенциальную проверку типа
 		if (getCurrentToken().code == TokenCode.IDENTIFIER) {
-			// Смотрим следующий токен, чтобы определить, является ли это проверкой типа
 			advance(); // Пропускаем идентификатор
 			if (getCurrentToken().code == TokenCode.IS) {
-				rewind();
-				return parseTypeCheck(); // Если следующий токен 'is', парсим проверку типа
+				rewind(); // Возвращаемся назад, если это проверка типа
+				comparison = parseTypeCheck(); // Парсим проверку типа
+				flag = false;
 			} else {
-				// Возвращаем обратно, если это не проверка типа
-				rewind();// Метод для возврата к предыдущему токену
-				return parseComparison(); // Или парсим обычное сравнение
+				rewind(); // Возвращаемся назад, если это не проверка типа
 			}
 		}
 
-		return parseComparison(); // Если не идентификатор, просто парсим сравнение
+		if (flag) {
+			comparison = parseComparison(); // Парсим первое сравнение
+		}
+
+		// Проверяем наличие логических операторов после сравнения
+		while (getCurrentToken().code == TokenCode.AND || getCurrentToken().code == TokenCode.OR) {
+			TokenCode logicalOperator = getCurrentToken().code;
+			advance(); // Пропускаем логический оператор
+			Node rightOperand = parseComparison(); // Парсим правую часть выражения
+			comparison = new LogicalNode(comparison, logicalOperator, rightOperand); // Создаём логическое выражение
+		}
+
+		return comparison; // Возвращаем полное условие
 	}
 
 
@@ -662,22 +680,63 @@ class Parser {
 		// Проверяем наличие 'not'
 		if (getCurrentToken().code == TokenCode.NOT) {
 			advance(); // Пропускаем 'not'
-			Node innerComparison = parseComparison(); // Рекурсивно разбираем следующее выражение
-			return new NotNode(innerComparison); // Возвращаем узел not
+
+			// Проверяем наличие скобок после 'not'
+			if (getCurrentToken().code == TokenCode.LPAREN) {
+				advance(); // Пропускаем '('
+				Node innerComparison = parseComparison(); // Парсим выражение внутри скобок
+
+				// Убедимся, что закрывающая скобка присутствует
+				if (getCurrentToken().code != TokenCode.RPAREN) {
+					throw new ParseException("Expected ')', found: " + getCurrentToken());
+				}
+				advance(); // Пропускаем ')'
+				return new NotNode(innerComparison); // Применяем 'not' ко всему выражению в скобках
+			} else {
+				System.out.println(getCurrentToken().code);
+				// Если нет скобок, парсим следующее выражение и возвращаем NotNode
+				Node innerComparison = parseComparisonWithoutLogicalOperators(); // Используем новый метод для сравнения
+				return new NotNode(innerComparison); // Применяем 'not' к этому выражению
+			}
 		}
 
-		// Проверяем наличие скобок
+		// Обрабатываем выражения в скобках
 		if (getCurrentToken().code == TokenCode.LPAREN) {
 			advance(); // Пропускаем '('
-			Node innerComparison = parseLogicalExpression(); // Обрабатываем логическое выражение внутри скобок
+			Node innerComparison = parseLogicalExpression(); // Парсим логическое выражение внутри скобок
 			if (getCurrentToken().code != TokenCode.RPAREN) {
 				throw new ParseException("Expected ')', found: " + getCurrentToken());
 			}
 			advance(); // Пропускаем ')'
-			return innerComparison; // Возвращаем результат
+			return innerComparison; // Возвращаем выражение в скобках
 		}
 
 		// Обрабатываем обычное сравнение
+		Node leftOperand = parseExpression(); // Разбираем левый операнд
+
+		// Обрабатываем оператор сравнения
+		TokenCode operator = getCurrentToken().code;
+		if (operator == TokenCode.LESS || operator == TokenCode.GREATER || operator == TokenCode.EQUAL ||
+				operator == TokenCode.LESS_EQUAL || operator == TokenCode.GREATER_EQUAL) {
+			advance(); // Пропускаем оператор
+			Node rightOperand = parseExpression(); // Разбираем правый операнд
+			leftOperand = new ComparisonNode(leftOperand, operator, rightOperand); // Создаём узел сравнения
+		}
+
+		// Обработка логических операторов
+		while (getCurrentToken().code == TokenCode.AND || getCurrentToken().code == TokenCode.OR) {
+			TokenCode logicalOperator = getCurrentToken().code;
+			advance(); // Пропускаем логический оператор
+			Node rightOperand = parseComparison(); // Парсим следующее выражение
+			leftOperand = new LogicalNode(leftOperand, logicalOperator, rightOperand); // Создаём узел логической операции
+		}
+
+		return leftOperand; // Возвращаем результат сравнения
+	}
+
+
+
+	private Node parseComparisonWithoutLogicalOperators() {
 		Node leftOperand = parseExpression(); // Начинаем с разбора первого операнда
 
 		// Обрабатываем оператор сравнения
@@ -689,17 +748,8 @@ class Parser {
 			leftOperand = new ComparisonNode(leftOperand, operator, rightOperand); // Создаем узел сравнения
 		}
 
-		// Обработка логических операторов
-		while (getCurrentToken().code == TokenCode.AND || getCurrentToken().code == TokenCode.OR) {
-			TokenCode logicalOperator = getCurrentToken().code;
-			advance(); // Пропускаем логический оператор
-			Node rightOperand = parseComparison(); // Разбираем следующее выражение
-			leftOperand = new LogicalNode(leftOperand, logicalOperator, rightOperand); // Создаем узел логической операции
-		}
-
-		return leftOperand; // Возвращаем результат сравнения
+		return leftOperand; // Возвращаем результат сравнения или операнд
 	}
-
 
 	private Node parseLogicalExpression() {
 		Node leftOperand = parseComparison(); // Обрабатываем первое сравнение
@@ -808,9 +858,8 @@ class Parser {
 			return new IdentifierNode(identifierToken.identifier); // Возвращаем идентификатор как первичное выражение
 		}
 
-		throw new ParseException("Unexpected token: " + getCurrentToken());
+		throw new ParseException("Unexpected token: " + getCurrentToken().code);
 	}
-
 	// Метод для проверки, является ли текущий токен оператором
 	private boolean isOperator(TokenCode code) {
 		return code == TokenCode.PLUS || code == TokenCode.MINUS || code == TokenCode.MULTIPLY || code == TokenCode.DIVIDE;
@@ -1348,7 +1397,7 @@ class Lexer {
 	public static void main(String[] args) {
 		// Путь к файлу
 
-		for (int i = 0; i <= 9; i++) {
+		for (int i = 0; i <= 15; i++) {
 			String filePath = "test" + i + ".d";
 
 			System.out.println();
