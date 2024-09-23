@@ -1,0 +1,7 @@
+var x := 5;
+if x > 10 and (x <= 20 or a > 20) then
+    var a := 3 + (2 * 3);
+    var b := 3;
+else
+    var a := 4;
+end;

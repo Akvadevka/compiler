@@ -333,6 +333,63 @@ class PrintNode extends StatementNode {
 	}
 }
 
+
+class ListNode extends VariableDeclarationNode {
+	private final BlockNode elements;
+	private final IdentifierNode name;
+
+	public ListNode(BlockNode elements, IdentifierNode name) {
+		super(null, null);
+		this.elements = elements;
+		this.name = name;
+		addChild(name); // Добавляем все элементы в дочерние
+		addChild(elements); // Добавляем все элементы в дочерние
+	}
+
+	@Override
+	public String toString() {
+		return "List: ";
+	}
+}
+
+class DictionaryNode extends VariableDeclarationNode {
+	private final BlockNode entriesBlock;
+	private final IdentifierNode name;
+
+	public DictionaryNode(BlockNode entries, IdentifierNode name) {
+		super(null, null);
+		this.name = name;
+		this.entriesBlock = entries;
+		addChild(name); // Добавляем BlockNode как дочерний узел
+		addChild(entriesBlock); // Добавляем BlockNode как дочерний узел
+	}
+
+	@Override
+	public String toString() {
+		return "Dictionary: " + entriesBlock.toString();
+	}
+}
+
+class DictionaryEntryNode extends Node {
+	private final Node key;
+	private final Node value;
+
+	public DictionaryEntryNode(Node key, Node value) {
+		this.key = key;
+		this.value = value;
+
+		addChild(key); // Добавляем ключ в дочерние узлы
+		addChild(value); // Добавляем значение в дочерние узлы
+	}
+
+	@Override
+	public String toString() {
+		return "Entry:";
+	}
+}
+
+
+
 class LiteralNode extends ExpressionNode {
 	private final Object value;
 
@@ -462,7 +519,15 @@ class Parser {
 		advance(); // Пропускаем идентификатор
 
 		if (getCurrentToken().code == TokenCode.ASSIGN) {
-			advance(); // Пропускаем '='
+			advance();// Пропускаем '='
+			if (getCurrentToken().code == TokenCode.LBRACKET) {
+				BlockNode elem = parseList();
+				return new ListNode(elem, new IdentifierNode(variableName.identifier));
+			}
+			else if (getCurrentToken().code == TokenCode.LBRACE) {
+				BlockNode dictElem = parseDictionary();
+				return new DictionaryNode(dictElem, new IdentifierNode(variableName.identifier));
+			}
 			ExpressionNode initializer = (ExpressionNode) parseExpression();
 			return new VariableDeclarationNode(variableName.identifier, initializer);
 		} else {
@@ -478,7 +543,6 @@ class Parser {
 
 		if (getCurrentToken().code == TokenCode.IN) {
 			advance(); // Пропускаем 'in'
-//            Node rangeStart = parseExpression();
 			List<Node> statements = new ArrayList<>();
 			statements.add(parseExpression());
 			BlockNode rangeStart = new BlockNode(statements, "start");
@@ -535,6 +599,7 @@ class Parser {
 				throw new ParseException("Expected function name, found: " + getCurrentToken());
 			}
 			Identifier functionToken = (Identifier) getCurrentToken();
+
 			IdentifierNode init = new IdentifierNode(functionToken.identifier);
 //            String functionName = functionToken.identifier;
 			advance(); // Пропускаем название функции
@@ -543,6 +608,7 @@ class Parser {
 				throw new ParseException("Expected '(', found: " + getCurrentToken());
 			}
 			advance(); // Пропускаем '('
+
 
 			List<Node > parameters = new ArrayList<>();
 			if (getCurrentToken().code != TokenCode.RPAREN) {
@@ -554,12 +620,13 @@ class Parser {
 				}
 			}
 
-			BlockNode param = new BlockNode(parameters, "param");
 
+			BlockNode param = new BlockNode(parameters, "param");
 			if (getCurrentToken().code != TokenCode.RPAREN) {
 				throw new ParseException("Expected ')', found: " + getCurrentToken());
 			}
 			advance(); // Пропускаем ')'
+
 
 			if (getCurrentToken().code == TokenCode.IS) {
 				advance(); // Пропускаем 'is'
@@ -596,7 +663,6 @@ class Parser {
 			} else {
 				throw new ParseException("Expected 'is' or '>=', found: " + getCurrentToken().code);
 			}
-
 		}
 
 		throw new ParseException("Expected 'func', found: " + getCurrentToken());
@@ -762,7 +828,6 @@ class Parser {
 
 		return new PrintNode(exp); // Возвращаем узел Print с выражениями
 	}
-
 
 	// Разбор команды print
 	private ReturnNode parseReturn() {
@@ -942,8 +1007,50 @@ class Parser {
 		return leftOperand;
 	}
 
+	// Парсер для словаря
+	private BlockNode parseDictionary() {
+		advance(); // Пропускаем '{'
 
+		List<Node> entries = new ArrayList<>();
 
+		// Если словарь пустой, сразу закрываем его
+		if (getCurrentToken().code != TokenCode.RBRACE) {
+			Node key = parseIdentifier(); // Разбираем ключ
+			if (getCurrentToken().code != TokenCode.ASSIGN) {
+				throw new ParseException("Expected ':', found: " + getCurrentToken().code);
+			}
+
+			advance(); // Пропускаем ':'
+			Node value = parseExpression(); // Разбираем значение
+			entries.add(new DictionaryEntryNode(key, value)); // Добавляем пару в список
+
+			// Пока есть запятые, продолжаем разбор пар
+			while (getCurrentToken().code == TokenCode.COMMA) {
+				advance(); // Пропускаем запятую
+				key = parseIdentifier(); // Разбираем следующий ключ
+
+				if (getCurrentToken().code == TokenCode.ASSIGN) {
+					advance(); // Пропускаем ':'
+					value = parseExpression(); // Разбираем значение
+					entries.add(new DictionaryEntryNode(key, value)); // Добавляем следующую пару
+				}
+				else if (getCurrentToken().code == TokenCode.COMMA || getCurrentToken().code == TokenCode.RBRACE) {
+					entries.add(new DictionaryEntryNode(key, null)); // Добавляем следующую пару
+				}
+				else {
+					throw new ParseException("Expected ':', found: " + getCurrentToken().code);
+				}
+			}
+		}
+
+		if (getCurrentToken().code != TokenCode.RBRACE) {
+			throw new ParseException("Expected '}', found: " + getCurrentToken());
+		}
+
+		advance(); // Пропускаем '}'
+
+		return new BlockNode(entries, "entries");
+	}
 
 
 
@@ -1037,6 +1144,27 @@ class Parser {
 		return code == TokenCode.PLUS || code == TokenCode.MINUS || code == TokenCode.MULTIPLY || code == TokenCode.DIVIDE;
 	}
 
+	private BlockNode parseList() {
+		List<Node> elements = new ArrayList<>();
+		if (getCurrentToken().code == TokenCode.LBRACKET) {
+			advance(); // Пропускаем '['
+			// Разбор элементов списка до закрывающей скобки
+			while (getCurrentToken().code != TokenCode.RBRACKET) {
+				elements.add(parseExpression()); // Добавляем элемент списка
+				if (getCurrentToken().code == TokenCode.COMMA) {
+					advance(); // Пропускаем запятую
+				} else if (getCurrentToken().code != TokenCode.RBRACKET) {
+					throw new ParseException("Expected ',' or ']', found: " + getCurrentToken());
+				}
+			}
+			advance(); // Пропускаем ']'
+			BlockNode elem = new BlockNode(elements, "elements");
+			return elem;
+
+		} else {
+			throw new ParseException("Expected '[', found: " + getCurrentToken());
+		}
+	}
 
 
 	private Node parseStatement() {
@@ -1225,7 +1353,7 @@ enum TokenCode {
 	INTEGER_LITERAL, REAL_LITERAL, STRING_LITERAL, BOOLEAN_LITERAL, TUPLE_LITERAL, ARRAY_LITERAL,
 
 	// Разделители
-	SEMICOLON, COMMA, LBRACE, RBRACE,
+	SEMICOLON, COMMA, LBRACE, RBRACE, COLON,
 
 	// Идентификатор
 	IDENTIFIER,
@@ -1386,6 +1514,9 @@ class Lexer {
 			}
 			else if (str.equals(">")){
 				return TokenCode.GREATER;
+			}
+			else if (str.equals(":")){
+				return TokenCode.COLON;
 			}
 			else if (str.equals("=")){
 				return TokenCode.EQUAL;
@@ -1578,8 +1709,8 @@ class Lexer {
 	public static void main(String[] args) {
 		// Путь к файлу
 
-		for (int i = 0; i <= 15; i++) {
-			String filePath = "test" + i + ".d";
+		for (int i = 16; i <= 16; i++) {
+			String filePath = "test/test" + i + ".d";
 
 			System.out.println();
 			System.out.println();
