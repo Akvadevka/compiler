@@ -193,18 +193,16 @@ class BlockNode extends Node {
 
 
 class FunctionDeclarationNode extends DeclarationNode {
-	String functionName;
-	List<VariableDeclarationNode > parameters;
+	BlockNode header;
 	Node functionBody;
 
-	FunctionDeclarationNode(String functionName, List<VariableDeclarationNode > parameters, Node functionBody) {
-		this.functionName = functionName;
-		this.parameters = parameters;
+	FunctionDeclarationNode(BlockNode header, Node functionBody) {
+		this.header = header;
 		this.functionBody = functionBody;
 
-		for (Node param : parameters) {
-			addChild(param); // Добавляем параметры в дочерние узлы
-		}
+		addChild(header);
+
+//        addChild(parameters); // Добавляем параметры в дочерние узлы
 
 		addChild(functionBody); // Добавляем body в дочерние узлы
 
@@ -212,7 +210,7 @@ class FunctionDeclarationNode extends DeclarationNode {
 
 	@Override
 	public String toString() {
-		return "Function: " + functionName;
+		return "Function: ";
 	}
 }
 
@@ -279,19 +277,19 @@ class WhileLoopNode extends StatementNode {
 }
 
 class ForLoopNode extends StatementNode {
-	private final Node initialization;
+	private final String name;
 	private final Node start;
 	private final Node end;
 	private final Node body;
 
-	public ForLoopNode(Node initialization, Node start, Node end, Node body) {
+	public ForLoopNode(String name, Node start, Node end, Node body) {
 		super("for");
-		this.initialization = initialization;
+		this.name = name;
 		this.start = start;
 		this.end = end;
 		this.body = body;
 
-		addChild(initialization); // Добавляем инициализацию в дочерние узлы
+//        addChild(name); // Добавляем инициализацию в дочерние узлы
 		addChild(start); // Добавляем start в дочерние узлы
 		addChild(end); // Добавляем end в дочерние узлы
 		addChild(body); // Добавляем body в дочерние узлы
@@ -334,6 +332,7 @@ class PrintNode extends StatementNode {
 		return "Print";
 	}
 }
+
 
 class ListNode extends VariableDeclarationNode {
 	private final BlockNode elements;
@@ -390,6 +389,7 @@ class DictionaryEntryNode extends Node {
 }
 
 
+
 class LiteralNode extends ExpressionNode {
 	private final Object value;
 
@@ -432,6 +432,7 @@ class NotNode extends Node {
 		this.operand = operand;
 		addChild(operand); // Добавляем операнд в дочерние узлы
 	}
+
 	@Override
 	public String toString() {
 		return "Not";
@@ -542,17 +543,47 @@ class Parser {
 
 		if (getCurrentToken().code == TokenCode.IN) {
 			advance(); // Пропускаем 'in'
-			Node rangeStart = parseExpression();
+			List<Node> statements = new ArrayList<>();
+			statements.add(parseExpression());
+			BlockNode rangeStart = new BlockNode(statements, "start");
 			if (getCurrentToken().code == TokenCode.TWO_DOT) {
 				advance();
-				Node rangeEnd = parseExpression();
+//                Node rangeEnd = parseExpression();
+				List<Node> statementsEnd = new ArrayList<>();
+				statementsEnd.add(parseExpression());
+				BlockNode rangeEnd = new BlockNode(statementsEnd, "end");
 				if (getCurrentToken().code == TokenCode.LOOP) {
 					advance();
-					Node body = parseStatement();
+					List<Node> bodyArr = new ArrayList<>();
+					while (getCurrentToken().code != TokenCode.END) {
+						if (getCurrentToken().code == TokenCode.SEMICOLON) {
+							advance();
+						} else {
+							bodyArr.add(parseStatement());
+						}
+					}
+//                    Node body = parseStatement();
+					BlockNode body = new BlockNode(bodyArr, "Body");
 					advance();
-					return new ForLoopNode(new AssignmentNode(variableName.identifier, rangeStart), rangeStart, rangeEnd, body);
+					return new ForLoopNode(variableName.identifier, rangeStart, rangeEnd, body);
 				}
 				throw new ParseException("Expected 'loop', found: " + getCurrentToken());
+			} else if (getCurrentToken().code == TokenCode.LOOP) {
+				List<Node> bodyArr = new ArrayList<>();
+				advance();
+				while (getCurrentToken().code != TokenCode.END) {
+					if (getCurrentToken().code == TokenCode.SEMICOLON) {
+						advance();
+					} else {
+						bodyArr.add(parseStatement());
+					}
+				}
+
+				BlockNode body = new BlockNode(bodyArr, "Body");
+
+//                Node body = parseStatement();
+				advance();
+				return new ForLoopNode(variableName.identifier, rangeStart, null, body);
 			}
 			throw new ParseException("Expected 'to', found: " + getCurrentToken());
 		}
@@ -568,7 +599,9 @@ class Parser {
 				throw new ParseException("Expected function name, found: " + getCurrentToken());
 			}
 			Identifier functionToken = (Identifier) getCurrentToken();
-			String functionName = functionToken.identifier;
+
+			IdentifierNode init = new IdentifierNode(functionToken.identifier);
+//            String functionName = functionToken.identifier;
 			advance(); // Пропускаем название функции
 
 			if (getCurrentToken().code != TokenCode.LPAREN) {
@@ -576,7 +609,8 @@ class Parser {
 			}
 			advance(); // Пропускаем '('
 
-			List<VariableDeclarationNode > parameters = new ArrayList<>();
+
+			List<Node > parameters = new ArrayList<>();
 			if (getCurrentToken().code != TokenCode.RPAREN) {
 				parameters.add(parseParameter());
 
@@ -586,24 +620,49 @@ class Parser {
 				}
 			}
 
+
+			BlockNode param = new BlockNode(parameters, "param");
 			if (getCurrentToken().code != TokenCode.RPAREN) {
 				throw new ParseException("Expected ')', found: " + getCurrentToken());
 			}
 			advance(); // Пропускаем ')'
 
-			if (getCurrentToken().code != TokenCode.IS) {
-				throw new ParseException("Expected 'is', found: " + getCurrentToken());
+
+			if (getCurrentToken().code == TokenCode.IS) {
+				advance(); // Пропускаем 'is'
+
+				Node functionBody = parseBlock();
+
+				if (getCurrentToken().code != TokenCode.END) {
+					throw new ParseException("Expected 'end', found: " + getCurrentToken());
+				}
+				advance(); // Пропускаем 'end'
+
+				List<Node > headerL = new ArrayList<>();
+				headerL.add(init);
+				headerL.add(param);
+				BlockNode headerBlock = new BlockNode(headerL, "head");
+
+				return new FunctionDeclarationNode(headerBlock, functionBody);
+			} else if (getCurrentToken().code == TokenCode.IMPLICATION) {
+				advance(); // Пропускаем '=>'
+				Node functionBody = parseStatement();
+				if (getCurrentToken().code != TokenCode.SEMICOLON) {
+					throw new ParseException("Expected ';', found: " + getCurrentToken());
+				}
+				List<Node > headerL = new ArrayList<>();
+				headerL.add(init);
+				headerL.add(param);
+				BlockNode headerBlock = new BlockNode(headerL, "head");
+
+				List<Node > bodyBlock = new ArrayList<>();
+				bodyBlock.add(functionBody);
+				BlockNode body = new BlockNode(bodyBlock, "body");
+				advance(); // Пропускаем 'end'
+				return new FunctionDeclarationNode(headerBlock, body);
+			} else {
+				throw new ParseException("Expected 'is' or '>=', found: " + getCurrentToken().code);
 			}
-			advance(); // Пропускаем 'is'
-
-			Node functionBody = parseBlock();
-
-			if (getCurrentToken().code != TokenCode.END) {
-				throw new ParseException("Expected 'end', found: " + getCurrentToken());
-			}
-			advance(); // Пропускаем 'end'
-
-			return new FunctionDeclarationNode(functionName, parameters, functionBody);
 		}
 
 		throw new ParseException("Expected 'func', found: " + getCurrentToken());
@@ -748,8 +807,26 @@ class Parser {
 	// Разбор команды print
 	private PrintNode parsePrint() {
 		advance(); // Пропускаем 'print'
-		Node expression = parseExpression();
-		return new PrintNode(expression);
+		List<Node> expressions = new ArrayList<>(); // Список для хранения выражений
+
+		// Парсим первое выражение
+		expressions.add(parseLogicalExpression());
+
+		// Продолжаем разбирать, пока есть запятые
+		while (getCurrentToken().code == TokenCode.COMMA) {
+			advance(); // Пропускаем запятую
+			expressions.add(parseLogicalExpression()); // Парсим следующее выражение
+		}
+
+		// Ожидаем ';' в конце
+		if (getCurrentToken().code != TokenCode.SEMICOLON) {
+			throw new ParseException("Expected ';' at the end of print statement, found: " + getCurrentToken().code);
+		}
+		advance(); // Пропускаем ';'
+
+		BlockNode exp = new BlockNode(expressions, "expressions");
+
+		return new PrintNode(exp); // Возвращаем узел Print с выражениями
 	}
 
 	// Разбор команды print
@@ -1105,6 +1182,12 @@ class Parser {
 			return parseReturn();
 		} else if (getCurrentToken().code == TokenCode.FUNC) {
 			return parseFunction();
+		} else if (getCurrentToken().code == TokenCode.INTEGER_LITERAL ||
+				getCurrentToken().code == TokenCode.REAL_LITERAL ||
+				getCurrentToken().code == TokenCode.BOOLEAN_LITERAL ||
+				getCurrentToken().code == TokenCode.STRING_LITERAL ||
+				getCurrentToken().code == TokenCode.IDENTIFIER) {
+			return parseExpression();
 		}
 		throw new ParseException("Unexpected statement type: " + getCurrentToken().code);
 	}
