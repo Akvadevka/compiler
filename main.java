@@ -4,7 +4,8 @@ import java.util.List;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.util.stream.Collectors;
+import java.util.HashMap;
+import java.util.Map;
 
 abstract class Node {
 	// Список дочерних узлов
@@ -140,13 +141,14 @@ abstract class StatementNode extends Node {
 
 
 class VariableDeclarationNode extends DeclarationNode {
-	String variableName;
+	IdentifierNode variableName;
 	ExpressionNode initializer;
+	String type;
 
-	VariableDeclarationNode(String variableName, ExpressionNode initializer) {
+	VariableDeclarationNode(IdentifierNode variableName, ExpressionNode initializer, String type) {
 		this.variableName = variableName;
 		this.initializer = initializer;
-
+		this.type = type;
 		addChild(initializer); // Добавляем initializer в дочерние узлы
 	}
 
@@ -184,7 +186,6 @@ class BlockNode extends Node {
 			addChild(statement); // Добавляем все узлы в дочерние
 		}
 	}
-
 	@Override
 	public String toString() {
 		return this.name;
@@ -214,22 +215,6 @@ class FunctionDeclarationNode extends DeclarationNode {
 	}
 }
 
-class AssignmentNode extends Node {
-	private final String variableName;
-	private final Node expression;
-
-	public AssignmentNode(String variableName, Node expression) {
-		this.variableName = variableName;
-		this.expression = expression;
-
-		addChild(expression); // Добавляем expression в дочерние узлы
-	}
-
-	@Override
-	public String toString() {
-		return "Assignment: " + variableName;
-	}
-}
 
 class IfNode extends StatementNode {
 	private final Node condition;
@@ -339,7 +324,7 @@ class ListNode extends VariableDeclarationNode {
 	private final IdentifierNode name;
 
 	public ListNode(BlockNode elements, IdentifierNode name) {
-		super(null, null);
+		super(null, null, null);
 		this.elements = elements;
 		this.name = name;
 		addChild(name); // Добавляем все элементы в дочерние
@@ -357,7 +342,7 @@ class DictionaryNode extends VariableDeclarationNode {
 	private final IdentifierNode name;
 
 	public DictionaryNode(BlockNode entries, IdentifierNode name) {
-		super(null, null);
+		super(null, null, null);
 		this.name = name;
 		this.entriesBlock = entries;
 		addChild(name); // Добавляем BlockNode как дочерний узел
@@ -466,6 +451,10 @@ class ParseException extends RuntimeException {
 		return message;
 	}
 }
+
+
+
+
 
 class Parser {
 	private List<Token> tokens;
@@ -1709,7 +1698,7 @@ class Lexer {
 	public static void main(String[] args) {
 		// Путь к файлу
 
-		for (int i = 16; i <= 16; i++) {
+		for (int i = 0; i <= 1; i++) {
 			String filePath = "test/test" + i + ".d";
 
 			System.out.println();
