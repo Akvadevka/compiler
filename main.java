@@ -588,7 +588,11 @@ class Parser {
                 program.addStatement(parseIf());
             } else if (getCurrentToken().code == TokenCode.FUNC) {
                 program.addStatement(parseFunction());
-            }
+            } else if (getCurrentToken().code == TokenCode.READ_REAL ||
+					getCurrentToken().code == TokenCode.READ_INT ||
+					getCurrentToken().code == TokenCode.READ_STRING) {
+				program.addStatement(parsePrimary());
+			}
             else {
                 current++;
 //                throw new ParseException("Unexpected token: " + getCurrentToken().code);
@@ -1216,39 +1220,53 @@ class Parser {
             advance();
             return new LiteralNode(booleanToken.value);
         } else if (getCurrentToken().code == TokenCode.READ_INT) {
-            List<Node > parameters = new ArrayList<>();
             advance();
             if (getCurrentToken().code == TokenCode.LPAREN) {
                 advance();
             }
             if (getCurrentToken().code != TokenCode.RPAREN) {
-                Node ne = parseCondition();
-                System.out.println(ne);
-                parameters.add(ne);
-
-                while (getCurrentToken().code == TokenCode.COMMA) {
-                    advance(); // Пропускаем запятую
-                    parameters.add(parseCondition());
-                }
-            }
-
-
-            BlockNode param = new BlockNode(parameters, "param");
-            if (getCurrentToken().code != TokenCode.RPAREN) {
                 System.out.println(getCurrentToken().code);
                 throw new ParseException("Expected ')', found: " + getCurrentToken().code);
             }
 
-            FunctionCall re = new FunctionCall(new IdentifierNode("Read INT"), param);
+            FunctionCall re = new FunctionCall(new IdentifierNode("Read INT"), null);
             advance();
             return re;
-        } else if (getCurrentToken().code == TokenCode.LPAREN) {
-            advance(); // Пропускаем '('
+        } else if (getCurrentToken().code == TokenCode.READ_STRING) {
+			advance();
+			if (getCurrentToken().code == TokenCode.LPAREN) {
+				advance();
+			}
+
+			if (getCurrentToken().code != TokenCode.RPAREN) {
+				System.out.println(getCurrentToken().code);
+				throw new ParseException("Expected ')', found: " + getCurrentToken().code);
+			}
+
+			FunctionCall re = new FunctionCall(new IdentifierNode("Read STRING"), null);
+			advance();
+			return re;
+		}else if (getCurrentToken().code == TokenCode.READ_REAL) {
+			advance();
+			if (getCurrentToken().code == TokenCode.LPAREN) {
+				advance();
+			}
+
+			if (getCurrentToken().code != TokenCode.RPAREN) {
+				System.out.println(getCurrentToken().code);
+				throw new ParseException("Expected ')', found: " + getCurrentToken().code);
+			}
+
+			FunctionCall re = new FunctionCall(new IdentifierNode("Read REAL"), null);
+			advance();
+			return re;
+		} else if (getCurrentToken().code == TokenCode.LPAREN) {
+            advance();
             Node expression = parseExpression(); // Разбор выражения в скобках
             if (getCurrentToken().code != TokenCode.RPAREN) {
                 throw new ParseException("Expected ')', found: " + getCurrentToken());
             }
-            advance(); // Пропускаем ')'
+            advance();
             return expression;
         } else if (getCurrentToken().code == TokenCode.IDENTIFIER) {
             Identifier identifierToken = (Identifier) getCurrentToken();
@@ -1328,6 +1346,10 @@ class Parser {
             return parseReturn();
         } else if (getCurrentToken().code == TokenCode.FUNC) {
             return parseFunction();
+		} else if (getCurrentToken().code == TokenCode.READ_REAL ||
+				getCurrentToken().code == TokenCode.READ_INT ||
+				getCurrentToken().code == TokenCode.READ_STRING) {
+			return parsePrimary();
         } else if (getCurrentToken().code == TokenCode.INTEGER_LITERAL ||
                 getCurrentToken().code == TokenCode.REAL_LITERAL ||
                 getCurrentToken().code == TokenCode.BOOLEAN_LITERAL ||
@@ -1818,17 +1840,17 @@ class Lexer {
             }
         }
         if (str.length() == 7) {
-            if (str.equals("readInt")) {
+            if (str.equals("readint")) {
                 return TokenCode.READ_INT;
             }
         }
         if (str.length() == 8) {
-            if (str.equals("readReal")) {
+            if (str.equals("readreal")) {
                 return TokenCode.READ_REAL;
             }
         }
         if (str.length() == 10) {
-            if (str.equals("readString")) {
+            if (str.equals("readstring")) {
                 return TokenCode.READ_STRING;
             }
         }
@@ -1855,7 +1877,7 @@ class Lexer {
     public static void main(String[] args) {
         // Путь к файлу
 
-        for (int i = 0; i <= 15; i++) {
+        for (int i = 0; i <= 16; i++) {
             String filePath = "test/test" + i + ".d";
 
             System.out.println();
