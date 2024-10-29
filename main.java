@@ -9,17 +9,23 @@ class SymbolTable {
         public String type;
         public int length;
         public String scope;
+        public int index;
+        public Node node;
+        public int numUse;
 
-        Symbol(String name, String type, int length, String scope) {
+        Symbol(String name, String type, int length, String scope, int index, Node node) {
             this.name = name;
             this.type = type;
             this.length = length;
             this.scope = scope;
+            this.index = index;
+            this.node = node;
+            this.numUse = 0;
         }
 
         @Override
         public String toString() {
-            return String.format("Name: %s, Type: %s, Length: %d, Scope: %s", name, type, length, scope);
+            return String.format("Name: %s, Type: %s, Length: %d, Scope: %s, Index %d, numUse  %d", name, type, length, scope, index, numUse);
         }
 
     }
@@ -30,12 +36,15 @@ class SymbolTable {
         this.table = new HashMap<>();
     }
 
-    public void addSymbol(String name, String type, int length, String scope) {
-        Symbol symbol = new Symbol(name, type, length, scope);
+    public void addSymbol(String name, String type, int length, String scope, int index, Node node) {
+        Symbol symbol = new Symbol(name, type, length, scope, index, node);
         table.put(name, symbol);
     }
 
-
+    public void addNumUse(String name) {
+        table.get(name).numUse += 1;
+        System.out.println(table.get(name).numUse);
+    }
 
     public Symbol getSymbol(String name) {
         return table.get(name);
@@ -49,6 +58,17 @@ class SymbolTable {
             return null;
         }
     }
+
+    public Node getSymbolNode(String name) {
+        Symbol symbol = table.get(name);
+        if (symbol != null) {
+            return symbol.node;
+        } else {
+            return null;
+        }
+    }
+
+
     public int getSymbolLength(String name) {
         Symbol symbol = table.get(name);
         if (symbol != null) {
@@ -56,6 +76,15 @@ class SymbolTable {
         } else {
             return -1;
         }
+    }
+
+    public String getSymbolByIndex(String scope, int index) {
+        for (Symbol symbol : table.values()) {
+            if (symbol.scope.equals(scope) && symbol.index == index) {
+                return symbol.name;
+            }
+        }
+        return null;
     }
 
 
@@ -469,6 +498,7 @@ class VariableDeclarationNode extends DeclarationNode {
     @Override
     public String toString() {
         return "Variable: " + variableName +" | type: " + this.type;
+
     }
 }
 
@@ -507,6 +537,15 @@ class BlockNode extends Node {
     public IdentifierNode getName() {
         return (IdentifierNode) this.statements.get(0);
     }
+
+    public int size() {
+        return statements.size();
+    }
+
+    public Node get(int index) {
+        return statements.get(index);
+    }
+
     @Override
     public String toString() {
         return this.name;
@@ -659,6 +698,23 @@ class ListNode extends VariableDeclarationNode {
 
     public IdentifierNode getName() {
         return variableName;
+    }
+
+    public Node get(int index) {
+        return elements.get(index);
+    }
+
+
+    public int size() {
+        int size = 0;
+
+
+        // Увеличиваем размер на количество дочерних узлов в elements
+        if (elements != null) {
+            size += elements.size(); // Предполагаем, что у BlockNode есть метод size()
+        }
+
+        return size;
     }
 
     @Override
@@ -924,13 +980,17 @@ class Parser {
         }
         Identifier variableName = (Identifier) getCurrentToken();
         advance(); // Пропускаем идентификатор
-
+//        System.out.println(this.symbolTable.getSymbol(variableName.identifier + "_" + this.scope) != null);
+//        if (!flagVarDeclare && this.symbolTable.getSymbol(variableName.identifier + "_" + this.scope) != null) {
+//            this.symbolTable.addNumUse(variableName.identifier + "_" + this.scope);
+//        }
         if (getCurrentToken().code == TokenCode.ASSIGN) {
             advance();// Пропускаем ':='
             System.out.println(getCurrentToken().code);
             if (flagVarDeclare && this.symbolTable.getSymbol(variableName.identifier + "_" + this.scope) != null) {
                 throw new ParseException("Line: " + getCurrentToken().span.lineNum + " | The variable named '" + variableName.identifier +  "' has already been declared");
             }
+
 //            if (getCurrentToken().code == TokenCode.LBRACKET) {
 //                BlockNode elem = parseList();
 //                return new ListNode(elem, new IdentifierNode(variableName.identifier));
@@ -952,7 +1012,7 @@ class Parser {
                 advance(); // Пропускаем 'func'
 
                 this.scope = variableName.identifier;
-                this.symbolTable.addSymbol(variableName.identifier + "_" + this.scope, "function", 0, this.scope);
+                this.symbolTable.addSymbol(variableName.identifier + "_" + this.scope, "function", 0, this.scope, -1, null);
 
                 IdentifierNode init = new IdentifierNode(variableName.identifier);
 //            String functionName = functionToken.identifier;
@@ -964,16 +1024,16 @@ class Parser {
                 advance(); // Пропускаем '('
 
 
-                List<Node > parameters = new ArrayList<>();
+                List<Node> parameters = new ArrayList<>();
                 if (getCurrentToken().code != TokenCode.RPAREN) {
                     VariableDeclarationNode re = parseParameter();
-                    this.symbolTable.addSymbol(re.variableName.getName() + "_" + this.scope, "param", 0, variableName.identifier);
+                    this.symbolTable.addSymbol(re.variableName.getName() + "_" + this.scope, "param", 0, variableName.identifier, -1, null);
                     parameters.add(re);
 
                     while (getCurrentToken().code == TokenCode.COMMA) {
                         advance(); // Пропускаем запятую
                         re = parseParameter();
-                        this.symbolTable.addSymbol(re.variableName.getName() + "_" + this.scope, "param", 0, variableName.identifier);
+                        this.symbolTable.addSymbol(re.variableName.getName() + "_" + this.scope, "param", 0, variableName.identifier, -1, null);
                         parameters.add(re);
                     }
                 }
@@ -992,22 +1052,21 @@ class Parser {
                     if (getCurrentToken().code != TokenCode.SEMICOLON) {
                         throw new ParseException("Expected ';', found: " + getCurrentToken());
                     }
-                    List<Node > headerL = new ArrayList<>();
+                    List<Node> headerL = new ArrayList<>();
                     headerL.add(init);
                     headerL.add(param);
                     BlockNode headerBlock = new BlockNode(headerL, "head");
 
-                    List<Node > bodyBlock = new ArrayList<>();
+                    List<Node> bodyBlock = new ArrayList<>();
                     bodyBlock.add(functionBody);
                     BlockNode body = new BlockNode(bodyBlock, "body");
                     advance(); // Пропускаем 'end'
                     FunctionDeclarationNode fincRe = new FunctionDeclarationNode(headerBlock, body);
                     IdentifierNode variableIdentifier = new IdentifierNode(variableName.identifier);
                     if (flagVarDeclare) {
-                        this.symbolTable.addSymbol(variableName.identifier + "_" + this.scope, "var", 0, this.scope);
+                        this.symbolTable.addSymbol(variableName.identifier + "_" + this.scope, "var", 0, this.scope, -1, null);
                     }
-
-                    return new VariableDeclarationNode(variableIdentifier, fincRe, null);
+                    return new VariableDeclarationNode(variableIdentifier, fincRe, "function");
                 } else {
                     throw new ParseException("Expected '>=', found: " + getCurrentToken().code);
                 }
@@ -1025,8 +1084,17 @@ class Parser {
             }
             IdentifierNode variableIdentifier = new IdentifierNode(variableName.identifier);
             if (flagVarDeclare) {
-                this.symbolTable.addSymbol(variableName.identifier + "_" + this.scope, "var", this.len, this.scope);
+                this.symbolTable.addSymbol(variableName.identifier + "_" + this.scope, "var", this.len, this.scope, -1, initializer);
             }
+            String type = "expression";
+            if (initializer instanceof ListNode) {
+                type = "list";
+            } else if (initializer instanceof LiteralNode) {
+                type = ((LiteralNode) initializer).getType();
+            } else if (initializer instanceof DictionaryNode) {
+                type = "dictionary";
+            }
+
             String type = "expression";
             if (initializer instanceof ListNode) {
                 type = "list";
@@ -1038,7 +1106,7 @@ class Parser {
             return new VariableDeclarationNode(variableIdentifier, initializer, type);
         } else {
             IdentifierNode variableIdentifier = new IdentifierNode(variableName.identifier);
-            return new VariableDeclarationNode(variableIdentifier, null, null);
+            return new VariableDeclarationNode(variableIdentifier, null, "empty");
         }
     }
 
@@ -1101,12 +1169,16 @@ class Parser {
         if (getCurrentToken().code == TokenCode.FUNC) {
             advance(); // Пропускаем 'func'
 
-            if (getCurrentToken().code == TokenCode.IDENTIFIER) {
+            if (getCurrentToken().code != TokenCode.IDENTIFIER) {
                 throw new ParseException("Expected function name, found: " + getCurrentToken());
             }
             Identifier functionToken = (Identifier) getCurrentToken();
+            if (this.symbolTable.getSymbol(functionToken.identifier + "_" + this.scope) != null) {
+                throw new ParseException("Line: " + getCurrentToken().span.lineNum + " | The function named '" + functionToken.identifier +  "' has already been declared");
+            }
+            this.symbolTable.addSymbol(functionToken.identifier + "_" + this.scope, "function", 0, "global", -1, null);
             this.scope = functionToken.identifier;
-            this.symbolTable.addSymbol(functionToken.identifier + "_" + this.scope, "function", 0, "global");
+
 
             IdentifierNode init = new IdentifierNode(functionToken.identifier);
 //            String functionName = functionToken.identifier;
@@ -1118,16 +1190,16 @@ class Parser {
             advance(); // Пропускаем '('
 
 
-            List<Node > parameters = new ArrayList<>();
+            List<Node> parameters = new ArrayList<>();
             if (getCurrentToken().code != TokenCode.RPAREN) {
                 VariableDeclarationNode re = parseParameter();
-                this.symbolTable.addSymbol(re.variableName.getName() + "_" + this.scope, "param", 0, functionToken.identifier);
+                this.symbolTable.addSymbol(re.variableName.getName() + "_" + this.scope, "param", 0, functionToken.identifier, -1, null);
                 parameters.add(re);
 
                 while (getCurrentToken().code == TokenCode.COMMA) {
                     advance(); // Пропускаем запятую
                     re = parseParameter();
-                    this.symbolTable.addSymbol(re.variableName.getName() + "_" + this.scope, "param", 0, functionToken.identifier);
+                    this.symbolTable.addSymbol(re.variableName.getName() + "_" + this.scope, "param", 0, functionToken.identifier, -1, null);
                     parameters.add(re);
                 }
             }
@@ -1150,7 +1222,7 @@ class Parser {
                 }
                 advance(); // Пропускаем 'end'
 
-                List<Node > headerL = new ArrayList<>();
+                List<Node> headerL = new ArrayList<>();
                 headerL.add(init);
                 headerL.add(param);
                 BlockNode headerBlock = new BlockNode(headerL, "head");
@@ -1162,12 +1234,12 @@ class Parser {
                 if (getCurrentToken().code != TokenCode.SEMICOLON) {
                     throw new ParseException("Expected ';', found: " + getCurrentToken());
                 }
-                List<Node > headerL = new ArrayList<>();
+                List<Node> headerL = new ArrayList<>();
                 headerL.add(init);
                 headerL.add(param);
                 BlockNode headerBlock = new BlockNode(headerL, "head");
 
-                List<Node > bodyBlock = new ArrayList<>();
+                List<Node> bodyBlock = new ArrayList<>();
                 bodyBlock.add(functionBody);
                 BlockNode body = new BlockNode(bodyBlock, "body");
                 advance(); // Пропускаем 'end'
@@ -1348,6 +1420,9 @@ class Parser {
         if (getCurrentToken().code == TokenCode.SEMICOLON){
             advance();
         }
+        while (getCurrentToken().code != TokenCode.SEMICOLON && getCurrentToken().code != TokenCode.END && getCurrentToken().code != TokenCode.ELSE) {
+            advance();
+        }
         return new ReturnNode(expression);
     }
 
@@ -1355,6 +1430,7 @@ class Parser {
         if (getCurrentToken().code == TokenCode.IDENTIFIER) {
             Identifier identifierToken = (Identifier) getCurrentToken();
             String identifierName = identifierToken.identifier;
+//            if ()
             advance();
 
             return new IdentifierNode(identifierName);
@@ -1486,6 +1562,7 @@ class Parser {
         if (isComparisonOperator(operator)) {
             advance();
             Node rightOperand = parseExpression();
+
             System.out.println(((LiteralNode) leftOperand).getValue());
             leftOperand = new ExpressionNode(leftOperand, operator, rightOperand);
         }
@@ -1551,13 +1628,15 @@ class Parser {
                 this.scope = ((IdentifierNode) key).getName();
             }
             Node value = parseExpression(); // Разбираем значение
-            this.symbolTable.addSymbol(((IdentifierNode) key).getName() + "_" + this.scope, "dict_key", 0, this.scope);
+            this.symbolTable.addSymbol(((IdentifierNode) key).getName() + "_" + this.scope, "dict_key", 0, this.scope, 0, null);
             entries.add(new DictionaryEntryNode(key, value)); // Добавляем пару в список
             if (flag) {
                 this.scope = last;
             }
             // Пока есть запятые, продолжаем разбор пар
+            int indexNum = 0;
             while (getCurrentToken().code == TokenCode.COMMA) {
+                indexNum++;
                 advance(); // Пропускаем запятую
                 key = parseIdentifier(); // Разбираем следующий ключ
 
@@ -1575,10 +1654,10 @@ class Parser {
                         this.scope = last;
                     }
                     entries.add(new DictionaryEntryNode(key, value)); // Добавляем следующую пару
-                    this.symbolTable.addSymbol(((IdentifierNode) key).getName() + "_" + this.scope, "dict_key", 0, this.scope);
+                    this.symbolTable.addSymbol(((IdentifierNode) key).getName() + "_" + this.scope, "dict_key", 0, this.scope, indexNum, null);
                 } else if (getCurrentToken().code == TokenCode.COMMA || getCurrentToken().code == TokenCode.RBRACE) {
                     entries.add(new DictionaryEntryNode(key, null)); // Добавляем следующую пару
-                    this.symbolTable.addSymbol(((IdentifierNode) key).getName() + "_" + this.scope, "dict_key", 0, this.scope);
+                    this.symbolTable.addSymbol(((IdentifierNode) key).getName() + "_" + this.scope, "dict_key", 0, this.scope, indexNum, null);
                 } else {
                     throw new ParseException("Expected ':=', found: " + getCurrentToken().code);
                 }
@@ -1734,7 +1813,9 @@ class Parser {
         } else if (getCurrentToken().code == TokenCode.IDENTIFIER) {
             Identifier identifierToken = (Identifier) getCurrentToken();
             if (program.isFunction(new IdentifierNode(identifierToken.identifier)) != null) {
-                List<Node > parameters = new ArrayList<>();
+                List<Node> parameters = new ArrayList<>();
+//                System.out.println(identifierToken.identifier + "_" + this.scope);
+//                this.symbolTable.addNumUse(identifierToken.identifier + "_" + this.scope);
                 advance();
                 if (getCurrentToken().code == TokenCode.LPAREN) {
                     advance();
@@ -1763,48 +1844,125 @@ class Parser {
 //            } else if (program.isVariable(new IdentifierNode(identifierToken.identifier)) != null) {
             } else if (this.symbolTable.getSymbolScope(identifierToken.identifier + "_" + this.scope) == scope) {
                 advance();
+                this.symbolTable.addNumUse(identifierToken.identifier + "_" + this.scope);
                 if (getCurrentToken().code == TokenCode.DOT) {
-//                Node elem = parseLogicalExpression();
                     IdentifierNode variableIdentifier = new IdentifierNode(identifierToken.identifier);
-                    advance();
-                    Node initializer = getEntry(variableIdentifier);
-//                    ((IdentifierNode) initializer).getName();
-                    while (getCurrentToken().code == TokenCode.DOT) {
-                        advance();
-                        initializer = getEntry(initializer);
-//                        ((DictionaryEntryNode) initializer).getValue();
+                    advance();  // Переходим к следующему токену
+                    Node initializer = getEntry(variableIdentifier);  // Получаем начальный узел
+
+                    String index = ((IdentifierNode) ((DictionaryEntryNode) initializer).getValue()).getName();
+                    String indexName = null;
+
+                    // Проверка, является ли `index` числовым значением
+                    if (isInteger(index)) {
+                        int listLength = symbolTable.getSymbolLength(identifierToken.identifier + "_" + this.scope);
+                        if (Integer.parseInt(index) < 0 || Integer.parseInt(index) >= listLength) {
+                            throw new ParseException("Index " + index + " out of bounds for list " + identifierToken.identifier);
+                        }
+                        indexName = this.symbolTable.getSymbolByIndex(identifierToken.identifier, Integer.parseInt(index));
+                        indexName = indexName.substring(0, indexName.indexOf('_'));
+                    } else {
+                        // Проверка, существует ли индекс как ключ в текущей области видимости
+                        if (symbolTable.getSymbolScope(index + "_" + identifierToken.identifier) == null) {
+                            throw new ParseException("Dictionary " + this.scope + " does not contain the key " + identifierToken.identifier);
+                        }
+
                     }
+
+                    // Обновляем scope на основе значения indexName или index
+                    String lastScope = this.scope;
+                    this.scope = (indexName != null) ? indexName : index;
+
+                    // Обрабатываем вложенные обращения через .
+                    while (getCurrentToken().code == TokenCode.DOT) {
+                        advance();  // Переходим к следующему токену
+                        initializer = getEntry(initializer);  // Получаем узел для вложенного элемента
+
+                        // Получаем название вложенного ключа
+                        index = ((IdentifierNode) ((DictionaryEntryNode) initializer).getValue()).getName();
+                        indexName = null;
+
+                        if (isInteger(index)) {
+                            if (this.symbolTable.getSymbolByIndex(this.scope, Integer.parseInt(index)) == null) {
+                                throw new ParseException("Index " + index + " out of bounds for list " + this.scope);
+                            }
+                            indexName = this.symbolTable.getSymbolByIndex(this.scope, Integer.parseInt(index));
+                            indexName = indexName.substring(0, indexName.indexOf('_'));
+//                            int listLength = symbolTable.getSymbolLength(this.scope);
+//
+////                            System.out.println(symbolTable.getSymbolNode(this.scope));
+//                            if (Integer.parseInt(index) < 0 || Integer.parseInt(index) >= listLength) {
+//                                throw new ParseException("Index " + index + " out of bounds for list " + indexName + "_" + this.scope);
+//                            }
+                        } else {
+                            // Проверка на существование ключа во вложенном словаре
+                            if (symbolTable.getSymbolScope(index + "_" + this.scope) == null) {
+                                throw new ParseException("Dictionary " + this.scope + " does not contain the key " + index);
+                            }
+                        }
+
+                        // Обновляем область видимости
+                        lastScope = this.scope;
+                        this.scope = (indexName != null) ? indexName : index;
+                    }
+
+                    // Восстанавливаем исходную область видимости
+                    this.scope = lastScope;
                     return initializer;
                 } else if (getCurrentToken().code == TokenCode.LBRACKET) {
-//                Node elem = parseLogicalExpression();
+//                    Node elem = parseLogicalExpression();
+
                     IdentifierNode variableIdentifier = new IdentifierNode(identifierToken.identifier);
                     advance();
                     Node initializer = getEntry(variableIdentifier);
 
-                    int index = ((IdentifierNode) ((DictionaryEntryNode) initializer).getValue()).getValue();
+// Получаем ListNode из таблицы символов
+                    ListNode listNode = (ListNode) this.symbolTable.getSymbolNode(identifierToken.identifier + "_" + this.scope);
 
-                    int listLength = symbolTable.getSymbolLength(identifierToken.identifier + "_" + this.scope);
+// Проверяем, что начальный индекс в допустимых пределах
+                    int index = ((IdentifierNode) ((DictionaryEntryNode) initializer).getValue()).getValue();
+                    int listLength = listNode.size();
                     if (index < 0 || index >= listLength) {
                         throw new ParseException("Index " + index + " out of bounds for list " + identifierToken.identifier);
                     }
-                    if (getCurrentToken().code != TokenCode.RBRACKET) {
-                        throw new ParseException("Expected ']', found: " + getCurrentToken().code);
+
+                    Node selectedNode = listNode.get(index); // Получаем элемент на данном индексе
+
+// Проверка, является ли элемент вложенным списком
+                    if (selectedNode instanceof ListNode) {
+                        listNode = (ListNode) selectedNode; // Обновляем listNode на текущий уровень вложенности
                     }
                     advance();
+// Переход на следующий уровень вложенности, если он есть
                     while (getCurrentToken().code == TokenCode.LBRACKET) {
                         advance();
                         initializer = getEntry(initializer);
-                        if (getCurrentToken().code != TokenCode.RBRACKET) {
-                            throw new ParseException("Expected ']', found: " + getCurrentToken().code);
+                        int nestedIndex = ((IdentifierNode) ((DictionaryEntryNode) initializer).getValue()).getValue();
+
+                        if (!(listNode instanceof ListNode)) {
+                            throw new ParseException("Это не лист");
                         }
-                        int index1 = ((IdentifierNode) initializer).getValue();
-                        int listLength1 = symbolTable.getSymbolLength(identifierToken.identifier);
-                        if (index1 < 0 || index1 >= listLength1) {
-                            throw new ParseException("Index " + index1 + " out of bounds for list " + identifierToken.identifier);
+
+                        // Проверяем, что текущий элемент является списком
+//                        if (!(listNode.get(nestedIndex) instanceof ListNode)) {
+//                            throw new ParseException("Expected a nested list at index " + nestedIndex + " in " + identifierToken.identifier);
+//                        }
+
+//                        listNode = (ListNode) listNode).get(nestedIndex); // Обновляем текущий listNode
+                        int nestedListLength = listNode.size();
+                        if (nestedIndex < 0 || nestedIndex >= nestedListLength) {
+                            throw new ParseException("Index " + nestedIndex + " out of bounds for nested list at " + identifierToken.identifier);
+                        }
+                        if (listNode.get(nestedIndex) instanceof ListNode) {
+                            listNode = (ListNode) listNode.get(nestedIndex); // Обновляем listNode на текущий уровень вложенности
                         }
                         advance();
                     }
+
+
+// Возвращаем финальный элемент, если проверка завершена успешно
                     return initializer;
+
                 }
                 return new IdentifierNode(identifierToken.identifier);
             } else {
@@ -1817,6 +1975,20 @@ class Parser {
 
 //        throw new ParseException("Unexpected token: " + getCurrentToken().code);
     }
+
+
+    public boolean isInteger(String str) {
+        if (str == null) {
+            return false;
+        }
+        try {
+            Integer.parseInt(str);
+            return true;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
 
     private Node getEntry(Node variableIdentifier) {
         IdentifierNode key = null;
