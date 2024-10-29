@@ -190,11 +190,13 @@ abstract class Node {
 }
 
 class ProgramNode extends Node {
-    private final List<Node> statements;
+    protected final List<Node> statements;
 
     public ProgramNode() {
         this.statements = new ArrayList<>();
     }
+
+
 
     public void addStatement(Node statement) {
         this.statements.add(statement);
@@ -257,13 +259,13 @@ class ExpressionNode extends Node {
     public Node evaluate() {
         // Проверим, являются ли оба операнда литеральными значениями
         if (leftOperand instanceof LiteralNode && rightOperand instanceof LiteralNode) {
-            Node result = checkTypes(); // Проверяем типы и вычисляем значение
+            Node result = checkTypes();
+            Optimizer.flag = true;
             return result;
         }
         // Если вычисление невозможно, возвращаем текущий узел
         return this;
     }
-
     public Node checkTypes() {
         String leftType = ((LiteralNode) leftOperand).getType();
         String rightType = ((LiteralNode) rightOperand).getType();
@@ -284,6 +286,7 @@ class ExpressionNode extends Node {
                 }
 //                if (leftType.equals("dictionary") && rightType.equals("dictionary")) return;
 //                if (leftType.equals("list") && rightType.equals("list")) return;
+
                 break;
 
             case MINUS:
@@ -1486,7 +1489,7 @@ class Parser {
         if (isComparisonOperator(operator)) {
             advance();
             Node rightOperand = parseExpression();
-            System.out.println(((LiteralNode) leftOperand).getValue());
+//            System.out.println(((LiteralNode) leftOperand).getValue());
             leftOperand = new ExpressionNode(leftOperand, operator, rightOperand);
         }
 
@@ -2065,26 +2068,40 @@ class StringToken extends Token {
 }
 
 class Optimizer {
-
+    public static boolean flag;
     private SymbolTable symbolTable; // Будем использовать символьную таблицу для проверки использования переменных
 
     public Optimizer(SymbolTable symbolTable) {
         this.symbolTable = symbolTable;
+        this.flag = false;
     }
 
     public Node optimize(Node ast) {
-        ast = simplifyConstantExpressions(ast);
-        ast = removeUnusedVariables(ast);
+        do {
+            flag = false;
+            simplifyConstantExpressions(ast);
+
+//            removeUnusedVariables(ast);
+
+        } while (flag);
+//        ast = removeUnusedVariables(ast);
         return ast;
     }
-
+    public void updateOperands(Node node) {
+        if (node instanceof ExpressionNode) {
+            ExpressionNode exprNode = (ExpressionNode) node;
+            List<Node> children = exprNode.getChildren();
+            if (children.size() >= 2) {
+                exprNode.setLeft(children.get(0));
+                exprNode.setRight(children.get(1));
+            }
+        }
+    }
     private Node simplifyConstantExpressions(Node node) {
         for (int i = 0; i < node.getChildren().size(); i++) {
             Node child = node.getChildren().get(i);
             if (child != null) {
                 Node optimizedChild = simplifyConstantExpressions(child);
-
-                // Проверяем, является ли оптимизированный дочерний узел выражением
                 if (optimizedChild instanceof ExpressionNode exprNode && exprNode.isConstant()) {
                     // Заменяем выражение его вычисленным значением
                     node.getChildren().set(i, exprNode.evaluate());
@@ -2092,6 +2109,7 @@ class Optimizer {
                     // Если не константа, обновляем дочерний узел
                     node.getChildren().set(i, optimizedChild);
                 }
+                updateOperands(node);
             }
         }
         return node;
@@ -2545,11 +2563,10 @@ class Lexer {
                 System.out.println();
                 System.out.println();
                 Parser parser = new Parser(tokenList); // Предположим, что у тебя есть класс Parser
-                System.out.println(123);
                 Node ast = parser.parseProgram();
                 SymbolTable symbolTable = parser.getSymbolTable();
                 Optimizer optimizer = new Optimizer(symbolTable);
-                optimizer.optimize(ast);
+                ast = optimizer.optimize(ast);
                 System.out.println(ast);// Метод для парсинга
                 ast.printTree("", true);
 //                printTree(ast);
