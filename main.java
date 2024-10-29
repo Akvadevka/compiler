@@ -1,9 +1,72 @@
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+
+class SymbolTable {
+    private static class Symbol {
+        public String name;
+        public String type;
+        public int length;
+        public String scope;
+
+        Symbol(String name, String type, int length, String scope) {
+            this.name = name;
+            this.type = type;
+            this.length = length;
+            this.scope = scope;
+        }
+
+        @Override
+        public String toString() {
+            return String.format("Name: %s, Type: %s, Length: %d, Scope: %s", name, type, length, scope);
+        }
+
+    }
+
+    private final Map<String, Symbol> table;
+
+    public SymbolTable() {
+        this.table = new HashMap<>();
+    }
+
+    public void addSymbol(String name, String type, int length, String scope) {
+        Symbol symbol = new Symbol(name, type, length, scope);
+        table.put(name, symbol);
+    }
+
+
+
+    public Symbol getSymbol(String name) {
+        return table.get(name);
+    }
+
+    public String getSymbolScope(String name) {
+        Symbol symbol = table.get(name);
+        if (symbol != null) {
+            return symbol.scope;
+        } else {
+            return null;
+        }
+    }
+    public int getSymbolLength(String name) {
+        Symbol symbol = table.get(name);
+        if (symbol != null) {
+            return symbol.length;
+        } else {
+            return -1;
+        }
+    }
+
+
+    public void removeSymbol(String name) {
+        table.remove(name);
+    }
+
+    public void printTable() {
+        table.values().forEach(System.out::println);
+    }
+}
 
 abstract class Node {
     // Список дочерних узлов
@@ -26,7 +89,11 @@ abstract class Node {
     public VariableDeclarationNode isVariable(IdentifierNode name) {
         // Применяем поиск в текущем узле
         if (!this.children.isEmpty()) {
-            return searchVariable(this.children.get(0), name);
+            for (int i = 0; i < this.children.size(); i++) {
+                VariableDeclarationNode re = searchVariable(this.children.get(i), name);
+                if (re != null)
+                    return re;
+            }
         }
         return null;
     }
@@ -37,7 +104,13 @@ abstract class Node {
             return; // Предотвращаем вызов на null
         }
         System.out.print(indent);
-        if (last) {
+        boolean lastFlag = true;
+        for (Node child : getChildren()) {
+            if (child != null) {
+                lastFlag = false;
+            }
+        }
+        if (lastFlag) {
             System.out.print("└── ");
             indent += "    ";
         } else {
@@ -81,11 +154,14 @@ abstract class Node {
         if (current == null) {
             return null;
         }
-
+        System.out.println("H: ");
+        System.out.println(current);
+        System.out.println(" ");
         // Если текущий узел - это переменная, проверяем имя
         if (current instanceof VariableDeclarationNode) {
             VariableDeclarationNode variableNode = (VariableDeclarationNode) current;
-            if (variableNode.getName().getName().equals(name.getName())) {
+
+            if (variableNode.getName() != null && variableNode.getName().getName().equals(name.getName())) {
                 return variableNode; // Переменная найдена
             }
         }
@@ -232,6 +308,10 @@ class IdentifierNode extends Node {
 
     public IdentifierNode(String name) {
         this.name = name;
+    }
+
+    public int getValue() {
+        return Integer.parseInt(this.name);
     }
 
     @Override
@@ -400,11 +480,16 @@ class ListNode extends VariableDeclarationNode {
     private final IdentifierNode name;
 
     public ListNode(BlockNode elements, IdentifierNode name) {
-        super(null, null, null);
+        super(name, null, null);
+        System.out.println(1233);
         this.elements = elements;
         this.name = name;
         addChild(name); // Добавляем все элементы в дочерние
         addChild(elements); // Добавляем все элементы в дочерние
+    }
+
+    public IdentifierNode getName() {
+        return variableName;
     }
 
     @Override
@@ -418,11 +503,15 @@ class DictionaryNode extends VariableDeclarationNode {
     private final IdentifierNode name;
 
     public DictionaryNode(BlockNode entries, IdentifierNode name) {
-        super(null, null, null);
+        super(name, null, null);
         this.name = name;
         this.entriesBlock = entries;
         addChild(name); // Добавляем BlockNode как дочерний узел
         addChild(entriesBlock); // Добавляем BlockNode как дочерний узел
+    }
+
+    public IdentifierNode getName() {
+        return variableName;
     }
 
     @Override
@@ -441,6 +530,10 @@ class DictionaryEntryNode extends Node {
 
         addChild(key); // Добавляем ключ в дочерние узлы
         addChild(value); // Добавляем значение в дочерние узлы
+    }
+
+    public Node getValue() {
+        return this.value;
     }
 
     @Override
@@ -555,11 +648,18 @@ class Parser {
     private List<Token> tokens;
     private int current;
     private ProgramNode program;
+    private SymbolTable symbolTable;
+    private String scope;
+    private int len;
+
 
     public Parser(List<Token> tokens) {
         this.tokens = tokens;
         this.current = 0;
         this.program = new ProgramNode();
+        this.symbolTable = new SymbolTable();
+        this.scope = "global";
+        this.len = 0;
     }
 
     private Token getCurrentToken() {
@@ -576,7 +676,10 @@ class Parser {
 
     public ProgramNode parseProgram() {
         while (current < tokens.size()) {
+            this.scope = "global";
             if (getCurrentToken().code == TokenCode.VAR) {
+                program.addStatement(parseDeclaration());
+            } else if (getCurrentToken().code == TokenCode.IDENTIFIER) {
                 program.addStatement(parseDeclaration());
             } else if (getCurrentToken().code == TokenCode.PRINT) {
                 program.addStatement(parsePrint());
@@ -589,36 +692,56 @@ class Parser {
             } else if (getCurrentToken().code == TokenCode.FUNC) {
                 program.addStatement(parseFunction());
             } else if (getCurrentToken().code == TokenCode.READ_REAL ||
-					getCurrentToken().code == TokenCode.READ_INT ||
-					getCurrentToken().code == TokenCode.READ_STRING) {
-				program.addStatement(parsePrimary());
-			}
+                    getCurrentToken().code == TokenCode.READ_INT ||
+                    getCurrentToken().code == TokenCode.READ_STRING) {
+                program.addStatement(parsePrimary());
+            } else if (getCurrentToken().code == TokenCode.RETURN) {
+                throw new ParseException("ERROR in line: " + getCurrentToken().span.lineNum + ". Return must be used inside the function.");
+            }
             else {
                 current++;
 //                throw new ParseException("Unexpected token: " + getCurrentToken().code);
             }
         }
+        this.symbolTable.printTable();
         return program;
     }
 
 
     private VariableDeclarationNode parseDeclaration() {
-        advance(); // Пропускаем 'var'
+        boolean flagVarDeclare = false;
+        if (getCurrentToken().code == TokenCode.VAR) {
+            flagVarDeclare = true;
+            advance();
+        }
+        // Пропускаем 'var'
         Identifier variableName = (Identifier) getCurrentToken();
         advance(); // Пропускаем идентификатор
 
         if (getCurrentToken().code == TokenCode.ASSIGN) {
             advance();// Пропускаем '='
-            if (getCurrentToken().code == TokenCode.LBRACKET) {
-                BlockNode elem = parseList();
-                return new ListNode(elem, new IdentifierNode(variableName.identifier));
-            }
-            else if (getCurrentToken().code == TokenCode.LBRACE) {
-                BlockNode dictElem = parseDictionary();
-                return new DictionaryNode(dictElem, new IdentifierNode(variableName.identifier));
-            }
-            Node initializer = (Node) parseExpression();
+            System.out.println(getCurrentToken().code);
+//            if (getCurrentToken().code == TokenCode.LBRACKET) {
+//                BlockNode elem = parseList();
+//                return new ListNode(elem, new IdentifierNode(variableName.identifier));
+//            }
+//            else if (getCurrentToken().code == TokenCode.LBRACE) {
+//                BlockNode dictElem = parseDictionary();
+//                return new DictionaryNode(dictElem, new IdentifierNode(variableName.identifier));
+//            }
+
+//            if (getCurrentToken().code == TokenCode.DOT) {
+//                advance();
+//                Node elem = parseLogicalExpression();
+//                IdentifierNode variableIdentifier = new IdentifierNode(variableName.identifier);
+//                Node initializer = new DictionaryEntryNode(variableIdentifier , elem);
+//                return new VariableDeclarationNode(variableIdentifier, initializer, null);
+//            }
+            Node initializer = (Node) parseLogicalExpression();
             IdentifierNode variableIdentifier = new IdentifierNode(variableName.identifier);
+            if (flagVarDeclare) {
+                this.symbolTable.addSymbol(variableName.identifier + "_" + this.scope, "var", this.len, this.scope);
+            }
             return new VariableDeclarationNode(variableIdentifier, initializer, null);
         } else {
             IdentifierNode variableIdentifier = new IdentifierNode(variableName.identifier);
@@ -690,6 +813,8 @@ class Parser {
                 throw new ParseException("Expected function name, found: " + getCurrentToken());
             }
             Identifier functionToken = (Identifier) getCurrentToken();
+            this.scope = functionToken.identifier;
+            this.symbolTable.addSymbol(functionToken.identifier + "_" + this.scope, "function", 0, "global");
 
             IdentifierNode init = new IdentifierNode(functionToken.identifier);
 //            String functionName = functionToken.identifier;
@@ -703,11 +828,15 @@ class Parser {
 
             List<Node > parameters = new ArrayList<>();
             if (getCurrentToken().code != TokenCode.RPAREN) {
-                parameters.add(parseParameter());
+                VariableDeclarationNode re = parseParameter();
+                this.symbolTable.addSymbol(re.variableName.getName() + "_" + this.scope, "param", 0, functionToken.identifier);
+                parameters.add(re);
 
                 while (getCurrentToken().code == TokenCode.COMMA) {
                     advance(); // Пропускаем запятую
-                    parameters.add(parseParameter());
+                    re = parseParameter();
+                    this.symbolTable.addSymbol(re.variableName.getName() + "_" + this.scope, "param", 0, functionToken.identifier);
+                    parameters.add(re);
                 }
             }
 
@@ -924,6 +1053,9 @@ class Parser {
     private ReturnNode parseReturn() {
         advance(); // Пропускаем 'return'
         Node expression = parseExpression();
+        if (getCurrentToken().code == TokenCode.SEMICOLON){
+            advance();
+        }
         return new ReturnNode(expression);
     }
 
@@ -1053,6 +1185,12 @@ class Parser {
         Node leftOperand = parseExpression();
 
         TokenCode operator = getCurrentToken().code;
+//        if (operator == TokenCode.DOT) {
+//            advance();
+//            TokenCode key = getCurrentToken().code;
+//            IdentifierNode keyIdentifier = new IdentifierNode(key.name());
+//            leftOperand = new DictionaryEntryNode(leftOperand, keyIdentifier);
+//        }
         if (isComparisonOperator(operator)) {
             advance();
             Node rightOperand = parseExpression();
@@ -1135,11 +1273,11 @@ class Parser {
         }
 
         if (getCurrentToken().code != TokenCode.RBRACE) {
-            throw new ParseException("Expected '}', found: " + getCurrentToken());
+            throw new ParseException("Expected '}', found: " + getCurrentToken().code);
         }
 
         advance(); // Пропускаем '}'
-
+        this.len = entries.size();
         return new BlockNode(entries, "entries");
     }
 
@@ -1215,10 +1353,21 @@ class Parser {
             StringToken stringToken = (StringToken) getCurrentToken();
             advance();
             return new LiteralNode(stringToken.value);
+        } else if (getCurrentToken().code == TokenCode.EMPTY) {
+//            StringToken stringToken = (StringToken) getCurrentToken();
+            advance();
+            return new LiteralNode("empty");
         } else if (getCurrentToken().code == TokenCode.BOOLEAN_LITERAL) {
             BooleanToken booleanToken = (BooleanToken) getCurrentToken();
             advance();
             return new LiteralNode(booleanToken.value);
+        } else if (getCurrentToken().code == TokenCode.LBRACKET) {
+            BlockNode elem = parseList();
+            return new ListNode(elem, null);
+        }
+        else if (getCurrentToken().code == TokenCode.LBRACE) {
+            BlockNode dictElem = parseDictionary();
+            return new DictionaryNode(dictElem, null);
         } else if (getCurrentToken().code == TokenCode.READ_INT) {
             advance();
             if (getCurrentToken().code == TokenCode.LPAREN) {
@@ -1233,40 +1382,40 @@ class Parser {
             advance();
             return re;
         } else if (getCurrentToken().code == TokenCode.READ_STRING) {
-			advance();
-			if (getCurrentToken().code == TokenCode.LPAREN) {
-				advance();
-			}
-
-			if (getCurrentToken().code != TokenCode.RPAREN) {
-				System.out.println(getCurrentToken().code);
-				throw new ParseException("Expected ')', found: " + getCurrentToken().code);
-			}
-
-			FunctionCall re = new FunctionCall(new IdentifierNode("Read STRING"), null);
-			advance();
-			return re;
-		}else if (getCurrentToken().code == TokenCode.READ_REAL) {
-			advance();
-			if (getCurrentToken().code == TokenCode.LPAREN) {
-				advance();
-			}
-
-			if (getCurrentToken().code != TokenCode.RPAREN) {
-				System.out.println(getCurrentToken().code);
-				throw new ParseException("Expected ')', found: " + getCurrentToken().code);
-			}
-
-			FunctionCall re = new FunctionCall(new IdentifierNode("Read REAL"), null);
-			advance();
-			return re;
-		} else if (getCurrentToken().code == TokenCode.LPAREN) {
             advance();
+            if (getCurrentToken().code == TokenCode.LPAREN) {
+                advance();
+            }
+
+            if (getCurrentToken().code != TokenCode.RPAREN) {
+                System.out.println(getCurrentToken().code);
+                throw new ParseException("Expected ')', found: " + getCurrentToken().code);
+            }
+
+            FunctionCall re = new FunctionCall(new IdentifierNode("Read STRING"), null);
+            advance();
+            return re;
+        }else if (getCurrentToken().code == TokenCode.READ_REAL) {
+            advance();
+            if (getCurrentToken().code == TokenCode.LPAREN) {
+                advance();
+            }
+
+            if (getCurrentToken().code != TokenCode.RPAREN) {
+                System.out.println(getCurrentToken().code);
+                throw new ParseException("Expected ')', found: " + getCurrentToken().code);
+            }
+
+            FunctionCall re = new FunctionCall(new IdentifierNode("Read REAL"), null);
+            advance();
+            return re;
+        } else if (getCurrentToken().code == TokenCode.LPAREN) {
+            advance(); // Пропускаем '('
             Node expression = parseExpression(); // Разбор выражения в скобках
             if (getCurrentToken().code != TokenCode.RPAREN) {
-                throw new ParseException("Expected ')', found: " + getCurrentToken());
+                throw new ParseException("Expected ')', found: " + getCurrentToken().code);
             }
-            advance();
+            advance(); // Пропускаем ')'
             return expression;
         } else if (getCurrentToken().code == TokenCode.IDENTIFIER) {
             Identifier identifierToken = (Identifier) getCurrentToken();
@@ -1297,13 +1446,96 @@ class Parser {
                 FunctionCall re = new FunctionCall(new IdentifierNode(identifierToken.identifier), param);
                 advance();
                 return re;
+//            } else if (program.isVariable(new IdentifierNode(identifierToken.identifier)) != null) {
+            } else if (this.symbolTable.getSymbolScope(identifierToken.identifier + "_" + this.scope) == scope) {
+                advance();
+                if (getCurrentToken().code == TokenCode.DOT) {
+//                Node elem = parseLogicalExpression();
+                    IdentifierNode variableIdentifier = new IdentifierNode(identifierToken.identifier);
+                    advance();
+                    Node initializer = getEntry(variableIdentifier);
+                    while (getCurrentToken().code == TokenCode.DOT) {
+                        advance();
+                        initializer = getEntry(initializer);
+                    }
+                    return initializer;
+                }
+                else if (getCurrentToken().code == TokenCode.LBRACKET) {
+//                Node elem = parseLogicalExpression();
+                    IdentifierNode variableIdentifier = new IdentifierNode(identifierToken.identifier);
+                    advance();
+                    Node initializer = getEntry(variableIdentifier);
+
+                    int index = ((IdentifierNode) ((DictionaryEntryNode) initializer).getValue()).getValue();
+
+                    int listLength = symbolTable.getSymbolLength(identifierToken.identifier + "_" + this.scope);
+                    if (index < 0 || index >= listLength) {
+                        throw new ParseException("Index " + index + " out of bounds for list " + identifierToken.identifier);
+                    }
+                    if (getCurrentToken().code != TokenCode.RBRACKET) {
+                        throw new ParseException("Expected ']', found: " + getCurrentToken().code);
+                    }
+                    advance();
+                    while (getCurrentToken().code == TokenCode.LBRACKET) {
+                        advance();
+                        initializer = getEntry(initializer);
+                        if (getCurrentToken().code != TokenCode.RBRACKET) {
+                            throw new ParseException("Expected ']', found: " + getCurrentToken().code);
+                        }
+                        int index1 = ((IdentifierNode) initializer).getValue();
+                        int listLength1 = symbolTable.getSymbolLength(identifierToken.identifier);
+                        if (index1 < 0 || index1 >= listLength1) {
+                            throw new ParseException("Index " + index1 + " out of bounds for list " + identifierToken.identifier);
+                        }
+                        advance();
+                    }
+                    return initializer;
+                }
+                return new IdentifierNode(identifierToken.identifier);
+            } else {
+                throw new ParseException("The identifier is not declared: " + ((Identifier) getCurrentToken()).identifier + " in line " + ((Identifier) getCurrentToken()).span.lineNum);
             }
-            advance();
-            return new IdentifierNode(identifierToken.identifier);
         }
 
         throw new ParseException("Unexpected token: " + getCurrentToken().code);
     }
+
+    private Node getEntry(Node variableIdentifier) {
+        IdentifierNode key = null;
+        if (getCurrentToken().code == TokenCode.IDENTIFIER) {
+            key = new IdentifierNode(((Identifier) getCurrentToken()).identifier);
+            Node initializer = new DictionaryEntryNode(variableIdentifier , key);
+            advance();
+            return initializer;
+        } else if (getCurrentToken().code == TokenCode.MINUS) {
+            advance();
+            if (getCurrentToken().code == TokenCode.INTEGER_LITERAL) {
+                key = new IdentifierNode("-" + ((Integer) (((IntegerToken) getCurrentToken()).value)).toString());
+                Node initializer = new DictionaryEntryNode(variableIdentifier , key);
+                advance();
+                return initializer;
+            } else {
+                throw new ParseException("Expected integer index: " + getCurrentToken().code);
+            }
+        } else if (getCurrentToken().code == TokenCode.INTEGER_LITERAL) {
+            key = new IdentifierNode(((Integer) (((IntegerToken) getCurrentToken()).value)).toString());
+            Node initializer = new DictionaryEntryNode(variableIdentifier , key);
+            advance();
+            return initializer;
+        } else if (getCurrentToken().code == TokenCode.STRING_LITERAL) {
+            key = new IdentifierNode(((StringToken) getCurrentToken()).value);
+            Node initializer = new DictionaryEntryNode(variableIdentifier , key);
+            advance();
+            return initializer;
+        } else if (getCurrentToken().code == TokenCode.LENGTH) {
+            key = new IdentifierNode("LENGTH");
+            Node initializer = new DictionaryEntryNode(variableIdentifier , key);
+            advance();
+            return initializer;
+        }
+        throw new ParseException("Unexpected token: " + getCurrentToken().code);
+    }
+
     private boolean isOperator(TokenCode code) {
         return code == TokenCode.PLUS || code == TokenCode.MINUS || code == TokenCode.MULTIPLY || code == TokenCode.DIVIDE;
     }
@@ -1322,6 +1554,7 @@ class Parser {
                 }
             }
             advance(); // Пропускаем ']'
+            this.len = elements.size();
             BlockNode elem = new BlockNode(elements, "elements");
             return elem;
 
@@ -1332,6 +1565,9 @@ class Parser {
 
 
     private Node parseStatement() {
+        if (getCurrentToken().code == TokenCode.SEMICOLON) {
+            advance();
+        }
         if (getCurrentToken().code == TokenCode.IF) {
             return parseIf();
         } else if (getCurrentToken().code == TokenCode.WHILE) {
@@ -1343,13 +1579,17 @@ class Parser {
         } else if (getCurrentToken().code == TokenCode.VAR) {
             return parseDeclaration();
         } else if (getCurrentToken().code == TokenCode.RETURN) {
-            return parseReturn();
+            if (this.scope != "global") {
+                System.out.println("213123");
+                return parseReturn();
+            }
+            throw new ParseException("ERROR in line: " + getCurrentToken().span.lineNum + ". Return must be used inside the function.");
         } else if (getCurrentToken().code == TokenCode.FUNC) {
             return parseFunction();
-		} else if (getCurrentToken().code == TokenCode.READ_REAL ||
-				getCurrentToken().code == TokenCode.READ_INT ||
-				getCurrentToken().code == TokenCode.READ_STRING) {
-			return parsePrimary();
+        } else if (getCurrentToken().code == TokenCode.READ_REAL ||
+                getCurrentToken().code == TokenCode.READ_INT ||
+                getCurrentToken().code == TokenCode.READ_STRING) {
+            return parsePrimary();
         } else if (getCurrentToken().code == TokenCode.INTEGER_LITERAL ||
                 getCurrentToken().code == TokenCode.REAL_LITERAL ||
                 getCurrentToken().code == TokenCode.BOOLEAN_LITERAL ||
@@ -1357,7 +1597,7 @@ class Parser {
                 getCurrentToken().code == TokenCode.IDENTIFIER) {
             return parseExpression();
         }
-        throw new ParseException("Unexpected statement type: " + getCurrentToken().code);
+        throw new ParseException("Unexpected statement type: " + getCurrentToken().code + " in line " + getCurrentToken().span.lineNum);
     }
 }
 
@@ -1523,6 +1763,8 @@ enum TokenCode {
     // Разделители
     SEMICOLON, COMMA, LBRACE, RBRACE, COLON,
 
+    COMMENT,
+
     // Идентификатор
     IDENTIFIER,
 
@@ -1535,11 +1777,12 @@ class Lexer {
     private final String code; // Код который мы чекаем
     private int lineNum = 1; // На какой сейчас строчке стоит поинт (для span)
     private int currentCharNum = 0; // На каком индексе сейчас находимся
-
+    private List<Token> tokenList;
     List<Character> symbolList = Arrays.asList('(', ')', ',', '+', '/', '-', '=', ':', ';', '>', '<', '[', ']', '{', '}', '.');
 
     public Lexer (String code) {
         this.code = code;
+        this.tokenList = new ArrayList<>();
     }
 
     private void spacesDelete() {
@@ -1557,6 +1800,20 @@ class Lexer {
         while(this.currentCharNum < this.code.length() && !Character.isWhitespace(this.code.charAt(this.currentCharNum)) && (!specSymbolCheck(this.currentCharNum))) {
             currentCharNum++;
         }
+    }
+
+    private void findLineEnd() {
+        while(this.currentCharNum < this.code.length() && this.code.charAt(this.currentCharNum) != '\n') {
+            currentCharNum++;
+        }
+    }
+
+    public int findWordStart() {
+        int charNum = currentCharNum;
+        while(charNum > 0 && !Character.isWhitespace(this.code.charAt(charNum)) && (!specSymbolCheck(charNum))) {
+            charNum--;
+        }
+        return charNum;
     }
 
 
@@ -1578,6 +1835,7 @@ class Lexer {
     }
 
     private Token scanNumber(Span span) {
+
         if (numberDelimCounter(span) > 1) {
             throw new LexerException("Invalid real number format at line " + this.lineNum);
         } else if (numberDelimCounter(span) == 1) {
@@ -1591,6 +1849,13 @@ class Lexer {
 
     private boolean specSymbolCheck(int num) {
         return symbolList.contains(this.code.charAt(num));
+    }
+
+    private boolean commentCheck(int num) {
+        if (num+1 < this.code.length()) {
+            return this.code.substring(num, num + 2).equals("//");
+        }
+        return false;
     }
 
     private Token stringTokenFind() {
@@ -1610,11 +1875,18 @@ class Lexer {
     }
 
 
+
+
     public Token tokenFind() {
         spacesDelete();
 
         if (this.currentCharNum >= code.length() ) {
             return new Token(TokenCode.EOF, new Span(lineNum, currentCharNum, currentCharNum));
+        }
+
+        if (commentCheck(this.currentCharNum)) {
+            findLineEnd();
+            return new Token(TokenCode.COMMENT, new Span(lineNum, currentCharNum, currentCharNum));
         }
 
         int firstCharNum = currentCharNum;
@@ -1625,6 +1897,15 @@ class Lexer {
 
         if (specSymbolCheck(this.currentCharNum)) {
             int offset = 1;
+            if (this.code.charAt(this.currentCharNum) == '.' && digitCheck(new Span(lineNum, this.currentCharNum+1, this.currentCharNum+2))) {
+                if (digitCheck(new Span(lineNum, findWordStart()-1, this.currentCharNum)) && (this.code.charAt(this.currentCharNum+1) != '.')){
+                    tokenList.remove(tokenList.size()-1);
+                    int charNumNew = findWordStart()-1;
+                    this.currentCharNum++;
+                    findWordEnd();
+                    return scanNumber(new Span(lineNum, charNumNew, this.currentCharNum));
+                }
+            }
             if (this.currentCharNum+1 < code.length() && specSymbolCheck(this.currentCharNum+1)) offset++;
             TokenCode token = getKeywordTokenCode(this.code.substring(this.currentCharNum, this.currentCharNum+offset));
             if (token == TokenCode.IDENTIFIER) {
@@ -1641,7 +1922,6 @@ class Lexer {
 
         if (digitCheck(span)) {
             return scanNumber(span);
-
         }
         String word = this.code.substring(span.posBegin, span.posEnd).toLowerCase();
         TokenCode token = getKeywordTokenCode(word);
@@ -1663,7 +1943,7 @@ class Lexer {
     }
 
     public List<Token> start() {
-        List<Token> tokenList = new ArrayList<>();
+        tokenList = new ArrayList<>();
         while (true) {
             Token token = tokenFind();
             tokenList.add(token);
@@ -1766,6 +2046,8 @@ class Lexer {
             }
             else if (str.equals("is")){
                 return TokenCode.IS;
+            } else if (str.equals("//")){
+                return TokenCode.COMMENT;
             }
         }
         if (str.length() == 3) {
@@ -1877,7 +2159,7 @@ class Lexer {
     public static void main(String[] args) {
         // Путь к файлу
 
-        for (int i = 0; i <= 16; i++) {
+        for (int i = 0; i <= 0; i++) {
             String filePath = "test/test" + i + ".d";
 
             System.out.println();
