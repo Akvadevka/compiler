@@ -21,6 +21,7 @@ class SymbolTable {
         public String toString() {
             return String.format("Name: %s, Type: %s, Length: %d, Scope: %s", name, type, length, scope);
         }
+
     }
 
     private final Map<String, Symbol> table;
@@ -34,6 +35,8 @@ class SymbolTable {
         table.put(name, symbol);
     }
 
+
+
     public Symbol getSymbol(String name) {
         return table.get(name);
     }
@@ -44,6 +47,14 @@ class SymbolTable {
             return symbol.scope;
         } else {
             return null;
+        }
+    }
+    public int getSymbolLength(String name) {
+        Symbol symbol = table.get(name);
+        if (symbol != null) {
+            return symbol.length;
+        } else {
+            return -1;
         }
     }
 
@@ -306,6 +317,10 @@ class IdentifierNode extends Node {
 
     public IdentifierNode(String name) {
         this.name = name;
+    }
+
+    public int getValue() {
+        return Integer.parseInt(this.name);
     }
 
     @Override
@@ -648,6 +663,8 @@ class Parser {
     private ProgramNode program;
     private SymbolTable symbolTable;
     private String scope;
+    private int len;
+
 
     public Parser(List<Token> tokens) {
         this.tokens = tokens;
@@ -655,6 +672,7 @@ class Parser {
         this.program = new ProgramNode();
         this.symbolTable = new SymbolTable();
         this.scope = "global";
+        this.len = 0;
     }
 
     private Token getCurrentToken() {
@@ -834,7 +852,7 @@ class Parser {
             }
             IdentifierNode variableIdentifier = new IdentifierNode(variableName.identifier);
             if (flagVarDeclare) {
-                this.symbolTable.addSymbol(variableName.identifier + "_" + this.scope, "var", 0, this.scope);
+                this.symbolTable.addSymbol(variableName.identifier + "_" + this.scope, "var", this.len, this.scope);
             }
             return new VariableDeclarationNode(variableIdentifier, initializer, null);
         } else {
@@ -1392,7 +1410,7 @@ class Parser {
         }
 
         advance(); // Пропускаем '}'
-
+        this.len = entries.size();
         return new BlockNode(entries, "entries");
     }
 
@@ -1595,6 +1613,37 @@ class Parser {
                     }
                     return initializer;
                 }
+                else if (getCurrentToken().code == TokenCode.LBRACKET) {
+//                Node elem = parseLogicalExpression();
+                    IdentifierNode variableIdentifier = new IdentifierNode(identifierToken.identifier);
+                    advance();
+                    Node initializer = getEntry(variableIdentifier);
+
+                    int index = ((IdentifierNode) ((DictionaryEntryNode) initializer).getValue()).getValue();
+
+                    int listLength = symbolTable.getSymbolLength(identifierToken.identifier + "_" + this.scope);
+                    if (index < 0 || index >= listLength) {
+                        throw new ParseException("Index " + index + " out of bounds for list " + identifierToken.identifier);
+                    }
+                    if (getCurrentToken().code != TokenCode.RBRACKET) {
+                        throw new ParseException("Expected ']', found: " + getCurrentToken().code);
+                    }
+                    advance();
+                    while (getCurrentToken().code == TokenCode.LBRACKET) {
+                        advance();
+                        initializer = getEntry(initializer);
+                        if (getCurrentToken().code != TokenCode.RBRACKET) {
+                            throw new ParseException("Expected ']', found: " + getCurrentToken().code);
+                        }
+                        int index1 = ((IdentifierNode) initializer).getValue();
+                        int listLength1 = symbolTable.getSymbolLength(identifierToken.identifier);
+                        if (index1 < 0 || index1 >= listLength1) {
+                            throw new ParseException("Index " + index1 + " out of bounds for list " + identifierToken.identifier);
+                        }
+                        advance();
+                    }
+                    return initializer;
+                }
                 return new IdentifierNode(identifierToken.identifier);
             } else {
                 throw new ParseException("The identifier is not declared: " + ((Identifier) getCurrentToken()).identifier + " in line " + ((Identifier) getCurrentToken()).span.lineNum);
@@ -1614,6 +1663,16 @@ class Parser {
             Node initializer = new DictionaryEntryNode(variableIdentifier , key);
             advance();
             return initializer;
+        } else if (getCurrentToken().code == TokenCode.MINUS) {
+            advance();
+            if (getCurrentToken().code == TokenCode.INTEGER_LITERAL) {
+                key = new IdentifierNode("-" + ((Integer) (((IntegerToken) getCurrentToken()).value)).toString());
+                Node initializer = new DictionaryEntryNode(variableIdentifier , key);
+                advance();
+                return initializer;
+            } else {
+                throw new ParseException("Expected integer index: " + getCurrentToken().code);
+            }
         } else if (getCurrentToken().code == TokenCode.INTEGER_LITERAL) {
             key = new IdentifierNode(((Integer) (((IntegerToken) getCurrentToken()).value)).toString());
             Node initializer = new DictionaryEntryNode(variableIdentifier , key);
@@ -1661,6 +1720,7 @@ class Parser {
                 }
             }
             advance(); // Пропускаем ']'
+            this.len = elements.size();
             BlockNode elem = new BlockNode(elements, "elements");
             return elem;
 
@@ -2265,7 +2325,7 @@ class Lexer {
         // Путь к файлу
 
         for (int i = 0; i <= 0; i++) {
-            String filePath = "src/test" + i + ".d";
+            String filePath = "test/test" + i + ".d";
 
             System.out.println();
             System.out.println();
