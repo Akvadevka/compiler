@@ -58,15 +58,6 @@ class SymbolTable {
         }
     }
 
-    public int getSymbolLength(String name) {
-        Symbol symbol = table.get(name);
-        if (symbol != null) {
-            return symbol.length;
-        } else {
-            return -1;
-        }
-    }
-
 
     public void removeSymbol(String name) {
         table.remove(name);
@@ -193,6 +184,9 @@ abstract class Node {
     public List<Node> getChildren() {
         return children;
     }
+    public boolean isConstant() {
+        return false;
+    }
 }
 
 class ProgramNode extends Node {
@@ -214,9 +208,9 @@ class ProgramNode extends Node {
 }
 
 class ExpressionNode extends Node {
-    private final Node leftOperand;
+    private Node leftOperand;
     private final TokenCode operator;
-    private final Node rightOperand;
+    private Node rightOperand;
 
     public ExpressionNode(Node leftOperand, TokenCode operator, Node rightOperand) {
         this.leftOperand = leftOperand;
@@ -227,12 +221,178 @@ class ExpressionNode extends Node {
         addChild(rightOperand);
     }
 
+    public boolean isConstant() {
+        return leftOperand.isConstant() && rightOperand.isConstant();
+    }
+
     @Override
     public String toString() {
         if (operator == null) {
             return "Identifier";
         }
         return "Expression: " + operator.toString();
+    }
+
+    public Node getLeftOp() {
+        return this.leftOperand;
+    }
+
+    public Node getRightOp() {
+        return this.rightOperand;
+    }
+
+    public TokenCode getOperator() {
+        return this.operator;
+    }
+
+    public void setLeft(Node left) {
+        this.leftOperand = left;
+    }
+
+    // Метод для установки правого поддерева
+    public void setRight(Node right) {
+        this.rightOperand = right;
+    }
+
+    public Node evaluate() {
+        // Проверим, являются ли оба операнда литеральными значениями
+        if (leftOperand instanceof LiteralNode && rightOperand instanceof LiteralNode) {
+            Node result = checkTypes(); // Проверяем типы и вычисляем значение
+            return result;
+        }
+        // Если вычисление невозможно, возвращаем текущий узел
+        return this;
+    }
+
+    public Node checkTypes() {
+        String leftType = ((LiteralNode) leftOperand).getType();
+        String rightType = ((LiteralNode) rightOperand).getType();
+
+        switch (operator) {
+            case PLUS:
+                if (leftType.equals("int") && rightType.equals("int")) {
+                    int result = Integer.parseInt(((LiteralNode) leftOperand).getValue().toString()) + Integer.parseInt(((LiteralNode) rightOperand).getValue().toString());
+                    return new LiteralNode((Object) result, "int");
+                } else if ((leftType.equals("int") && rightType.equals("real")) ||
+                        (leftType.equals("real") && rightType.equals("int")) ||
+                        (leftType.equals("real") && rightType.equals("real"))) {
+                    double result = Double.parseDouble(((LiteralNode) leftOperand).getValue().toString()) + Double.parseDouble(((LiteralNode) rightOperand).getValue().toString());
+                    return new LiteralNode((Object) result, "real");
+                } else if (leftType.equals("string") && rightType.equals("string")) {
+                    String result = ((LiteralNode) leftOperand).getValue().toString() + ((LiteralNode) rightOperand).getValue().toString();
+                    return new LiteralNode((Object) result, "string");
+                }
+//                if (leftType.equals("dictionary") && rightType.equals("dictionary")) return;
+//                if (leftType.equals("list") && rightType.equals("list")) return;
+                break;
+
+            case MINUS:
+                if (leftType.equals("int") && rightType.equals("int")) {
+                    int result = Integer.parseInt(((LiteralNode) leftOperand).getValue().toString()) - Integer.parseInt(((LiteralNode) rightOperand).getValue().toString());
+                    return new LiteralNode((Object) result, "int");
+                } else if ((leftType.equals("int") && rightType.equals("real")) ||
+                        (leftType.equals("real") && rightType.equals("int")) ||
+                        (leftType.equals("real") && rightType.equals("real"))) {
+                    double result = Double.parseDouble(((LiteralNode) leftOperand).getValue().toString()) - Double.parseDouble(((LiteralNode) rightOperand).getValue().toString());
+                    return new LiteralNode((Object) result, "real");
+                }
+                break;
+            case MULTIPLY:
+                if (leftType.equals("int") && rightType.equals("int")) {
+                    int result = Integer.parseInt(((LiteralNode) leftOperand).getValue().toString()) * Integer.parseInt(((LiteralNode) rightOperand).getValue().toString());
+                    return new LiteralNode((Object) result, "int");
+                } else if ((leftType.equals("int") && rightType.equals("real")) ||
+                        (leftType.equals("real") && rightType.equals("int")) ||
+                        (leftType.equals("real") && rightType.equals("real"))) {
+                    double result = Double.parseDouble(((LiteralNode) leftOperand).getValue().toString()) * Double.parseDouble(((LiteralNode) rightOperand).getValue().toString());
+                    return new LiteralNode((Object) result, "real");
+                }
+                break;
+            case DIVIDE:
+                if (leftType.equals("int") && rightType.equals("int")) {
+                    int result = Integer.parseInt(((LiteralNode) leftOperand).getValue().toString()) / Integer.parseInt(((LiteralNode) rightOperand).getValue().toString());
+                    return new LiteralNode((Object) result, "int");
+                } else if ((leftType.equals("int") && rightType.equals("real")) ||
+                        (leftType.equals("real") && rightType.equals("int")) ||
+                        (leftType.equals("real") && rightType.equals("real"))) {
+                    double result = Double.parseDouble(((LiteralNode) leftOperand).getValue().toString()) / Double.parseDouble(((LiteralNode) rightOperand).getValue().toString());
+                    return new LiteralNode((Object) result, "real");
+                }
+                break;
+
+            case LESS:
+            case GREATER:
+            case LESS_EQUAL:
+            case GREATER_EQUAL:
+            case EQUAL:
+            case NOT_EQUAL:
+                if ((leftType.equals("int") || leftType.equals("real")) &&
+                        (rightType.equals("int") || rightType.equals("real"))) {
+                    boolean result;
+                    double leftValue = Double.parseDouble(((LiteralNode) leftOperand).getValue().toString());
+                    double rightValue = Double.parseDouble(((LiteralNode) rightOperand).getValue().toString());
+                    switch (operator) {
+                        case LESS:
+                            result = leftValue < rightValue;
+                            break;
+                        case GREATER:
+                            result = leftValue > rightValue;
+                            break;
+                        case LESS_EQUAL:
+                            result = leftValue <= rightValue;
+                            break;
+                        case GREATER_EQUAL:
+                            result = leftValue >= rightValue;
+                            break;
+                        case EQUAL:
+                            result = leftValue == rightValue;
+                            break;
+                        case NOT_EQUAL:
+                            result = leftValue != rightValue;
+                            break;
+                        default:
+                            throw new ParseException("Invalid comparison operation.");
+                    }
+                    return new LiteralNode((Object) result, "boolean");
+                }
+                break;
+            case AND:
+            case OR:
+            case XOR:
+                if (leftType.equals("boolean") && rightType.equals("boolean")) {
+                    boolean leftValue = Boolean.parseBoolean(((LiteralNode) leftOperand).getValue().toString());
+                    boolean rightValue = Boolean.parseBoolean(((LiteralNode) rightOperand).getValue().toString());
+                    boolean result;
+
+                    switch (operator) {
+                        case AND:
+                            result = leftValue && rightValue;
+                            break;
+                        case OR:
+                            result = leftValue || rightValue;
+                            break;
+                        case XOR:
+                            result = leftValue ^ rightValue;
+                            break;
+                        default:
+                            throw new ParseException("Unsupported operation: " + operator);
+                    }
+                    return new LiteralNode((Object) result, "boolean");
+                }
+                break;
+
+            case NOT:
+                if (rightType.equals("boolean")) {
+                    boolean rightValue = Boolean.parseBoolean(((LiteralNode) rightOperand).getValue().toString());
+                    boolean result = !rightValue;
+                    return new LiteralNode((Object) result, "boolean");
+                }
+                break;
+
+            default:
+                throw new RuntimeException("Unsupported operation for types: " + leftType + " and " + rightType);
+        }
+        throw new RuntimeException("Invalid operand types for operation: " + leftType + " and " + rightType);
     }
 }
 
@@ -308,7 +468,7 @@ class VariableDeclarationNode extends DeclarationNode {
 
     @Override
     public String toString() {
-        return "Variable: " + variableName;
+        return "Variable: " + variableName +" | type: " + this.type;
     }
 }
 
@@ -555,19 +715,28 @@ class DictionaryEntryNode extends Node {
 
 class LiteralNode extends ExpressionNode {
     private final Object value;
+    private String type;
 
-    public LiteralNode(Object value) {
+    public LiteralNode(Object value, String type) {
         super(null, null, null);
         this.value = value;
+        this.type = type;
     }
 
     public Object getValue() {
         return this.value;
     }
 
+    public String getType() {
+        return this.type;
+    }
+
     @Override
     public String toString() {
-        return "Literal: " + value.toString();
+        return "Literal: " + value.toString() + " | type: " + type;
+    }
+    public boolean isConstant() {
+        return true; // Литералы всегда являются константами
     }
 }
 
@@ -613,7 +782,6 @@ class FunctionCall extends Node {
 
 class NotNode extends Node {
     private final Node operand;
-
     public NotNode(Node operand) {
         this.operand = operand;
         addChild(operand); // Добавляем операнд в дочерние узлы
@@ -687,6 +855,10 @@ class Parser {
         current--;
     }
 
+    public SymbolTable getSymbolTable() {
+        return this.symbolTable;
+    }
+
     public ProgramNode parseProgram() {
         while (current < tokens.size()) {
             this.scope = "global";
@@ -756,7 +928,7 @@ class Parser {
         if (getCurrentToken().code == TokenCode.ASSIGN) {
             advance();// Пропускаем ':='
             System.out.println(getCurrentToken().code);
-            if (this.symbolTable.getSymbol(variableName.identifier + "_" + this.scope) != null) {
+            if (flagVarDeclare && this.symbolTable.getSymbol(variableName.identifier + "_" + this.scope) != null) {
                 throw new ParseException("Line: " + getCurrentToken().span.lineNum + " | The variable named '" + variableName.identifier +  "' has already been declared");
             }
 //            if (getCurrentToken().code == TokenCode.LBRACKET) {
@@ -834,6 +1006,7 @@ class Parser {
                     if (flagVarDeclare) {
                         this.symbolTable.addSymbol(variableName.identifier + "_" + this.scope, "var", 0, this.scope);
                     }
+
                     return new VariableDeclarationNode(variableIdentifier, fincRe, null);
                 } else {
                     throw new ParseException("Expected '>=', found: " + getCurrentToken().code);
@@ -854,7 +1027,15 @@ class Parser {
             if (flagVarDeclare) {
                 this.symbolTable.addSymbol(variableName.identifier + "_" + this.scope, "var", this.len, this.scope);
             }
-            return new VariableDeclarationNode(variableIdentifier, initializer, null);
+            String type = "expression";
+            if (initializer instanceof ListNode) {
+                type = "list";
+            } else if (initializer instanceof DictionaryNode) {
+                type = "dictionary";
+            } else if (initializer instanceof LiteralNode) {
+                type = ((LiteralNode) initializer).getType();
+            }
+            return new VariableDeclarationNode(variableIdentifier, initializer, type);
         } else {
             IdentifierNode variableIdentifier = new IdentifierNode(variableName.identifier);
             return new VariableDeclarationNode(variableIdentifier, null, null);
@@ -1183,17 +1364,17 @@ class Parser {
     }
 
 
-    private ComparisonNode parseTypeCheck() {
+    private ExpressionNode parseTypeCheck() {
         Node identifier = parseIdentifier();
 
         if (getCurrentToken().code == TokenCode.IS) {
             advance(); // Пропускаем 'is'
             Node typeNode = parseType();
-            return new ComparisonNode(identifier, TokenCode.IS, typeNode);
+            return new ExpressionNode(identifier, TokenCode.IS, typeNode);
         } else if (getCurrentToken().code == TokenCode.IN) {
             advance();
             Node typeNode = parseType();
-            return new ComparisonNode(identifier, TokenCode.IN, typeNode);
+            return new ExpressionNode(identifier, TokenCode.IN, typeNode);
         }
 
         throw new ParseException("Expected 'is', found: " + getCurrentToken());
@@ -1204,25 +1385,25 @@ class Parser {
         switch (getCurrentToken().code) {
             case INT:
                 advance(); // Пропускаем 'int'
-                return new LiteralNode("int");
+                return new LiteralNode("int", "int");
             case REAL:
                 advance(); // Пропускаем 'real'
-                return new LiteralNode("real");
+                return new LiteralNode("real", "real");
             case STRING:
                 advance(); // Пропускаем 'string'
-                return new LiteralNode("string");
+                return new LiteralNode("string", "string");
             case TUPLE_LITERAL:
                 advance(); // Пропускаем 'tuple'
-                return new LiteralNode("tuple");
+                return new LiteralNode("tuple", "tuple");
             case ARRAY_LITERAL:
                 advance(); // Пропускаем 'array'
-                return new LiteralNode("array");
+                return new LiteralNode("array", "array");
             case IDENTIFIER:
                 advance(); // Пропускаем 'identifier'
-                return new LiteralNode("identifier");
+                return new LiteralNode("identifier", "identifier");
             case EMPTY:
                 advance(); // Пропускаем 'empty'
-                return new LiteralNode("empty");
+                return new LiteralNode("empty", "empty");
             default:
                 throw new ParseException("Expected a type, found: " + getCurrentToken().code);
         }
@@ -1251,11 +1432,11 @@ class Parser {
             comparison = parseComparison();
         }
 
-        while (getCurrentToken().code == TokenCode.AND || getCurrentToken().code == TokenCode.OR) {
+        while (getCurrentToken().code == TokenCode.AND || getCurrentToken().code == TokenCode.OR || getCurrentToken().code == TokenCode.XOR) {
             TokenCode logicalOperator = getCurrentToken().code;
             advance(); // Пропускаем логический оператор
             Node rightOperand = parseComparison();
-            comparison = new LogicalNode(comparison, logicalOperator, rightOperand);
+            comparison = new ExpressionNode(comparison, logicalOperator, rightOperand);
         }
 
         return comparison;
@@ -1275,11 +1456,11 @@ class Parser {
                     throw new ParseException("Expected ')', found: " + getCurrentToken());
                 }
                 advance(); // Пропускаем ')'
-                return new NotNode(innerComparison);
+                return new ExpressionNode(null, TokenCode.NOT, innerComparison);
             } else {
                 System.out.println(getCurrentToken().code);
                 Node innerComparison = parseComparisonWithoutLogicalOperators();
-                return new NotNode(innerComparison);
+                return new ExpressionNode(null, TokenCode.NOT, innerComparison);
             }
         }
 
@@ -1306,15 +1487,15 @@ class Parser {
             advance();
             Node rightOperand = parseExpression();
             System.out.println(((LiteralNode) leftOperand).getValue());
-            leftOperand = new ComparisonNode(leftOperand, operator, rightOperand);
+            leftOperand = new ExpressionNode(leftOperand, operator, rightOperand);
         }
 
 
-        while (getCurrentToken().code == TokenCode.AND || getCurrentToken().code == TokenCode.OR) {
+        while (getCurrentToken().code == TokenCode.AND || getCurrentToken().code == TokenCode.OR || getCurrentToken().code == TokenCode.XOR) {
             TokenCode logicalOperator = getCurrentToken().code;
             advance(); // Пропускаем логический оператор
             Node rightOperand = parseComparison();
-            leftOperand = new LogicalNode(leftOperand, logicalOperator, rightOperand);
+            leftOperand = new ExpressionNode(leftOperand, logicalOperator, rightOperand);
         }
 
         return leftOperand;
@@ -1329,7 +1510,7 @@ class Parser {
         if (isComparisonOperator(operator)) {
             advance(); // Пропускаем оператор
             Node rightOperand = parseExpression();
-            leftOperand = new ComparisonNode(leftOperand, operator, rightOperand);
+            leftOperand = new ExpressionNode(leftOperand, operator, rightOperand);
         }
 
         return leftOperand;
@@ -1338,11 +1519,11 @@ class Parser {
     private Node parseLogicalExpression() {
         Node leftOperand = parseComparison();
 
-        while (getCurrentToken().code == TokenCode.AND || getCurrentToken().code == TokenCode.OR) {
+        while (getCurrentToken().code == TokenCode.AND || getCurrentToken().code == TokenCode.OR || getCurrentToken().code == TokenCode.XOR) {
             TokenCode operator = getCurrentToken().code;
             advance(); // Пропускаем логический оператор
             Node rightOperand = parseComparison();
-            leftOperand = new LogicalNode(leftOperand, operator, rightOperand);
+            leftOperand = new ExpressionNode(leftOperand, operator, rightOperand);
         }
 
         return leftOperand;
@@ -1477,23 +1658,23 @@ class Parser {
         if (getCurrentToken().code == TokenCode.REAL_LITERAL) {
             RealToken realToken = (RealToken) getCurrentToken();
             advance();
-            return new LiteralNode(realToken.value);
+            return new LiteralNode(realToken.value, "real");
         } else if (getCurrentToken().code == TokenCode.INTEGER_LITERAL) {
             IntegerToken integerToken = (IntegerToken) getCurrentToken();
             advance();
-            return new LiteralNode(integerToken.value);
+            return new LiteralNode(integerToken.value, "int");
         } else if (getCurrentToken().code == TokenCode.STRING_LITERAL) {
             StringToken stringToken = (StringToken) getCurrentToken();
             advance();
-            return new LiteralNode(stringToken.value);
+            return new LiteralNode(stringToken.value, "string");
         } else if (getCurrentToken().code == TokenCode.EMPTY) {
 //            StringToken stringToken = (StringToken) getCurrentToken();
             advance();
-            return new LiteralNode("empty");
+            return new LiteralNode("empty", "empty");
         } else if (getCurrentToken().code == TokenCode.BOOLEAN_LITERAL) {
             BooleanToken booleanToken = (BooleanToken) getCurrentToken();
             advance();
-            return new LiteralNode(booleanToken.value);
+            return new LiteralNode(booleanToken.value, "boolean");
         } else if (getCurrentToken().code == TokenCode.LBRACKET) {
             BlockNode elem = parseList();
             return new ListNode(elem, null);
@@ -1595,25 +1776,6 @@ class Parser {
                     }
                     return initializer;
                 } else if (getCurrentToken().code == TokenCode.LBRACKET) {
-//                Node elem = parseLogicalExpression();
-                    IdentifierNode variableIdentifier = new IdentifierNode(identifierToken.identifier);
-                    advance();
-                    Node initializer = getEntry(variableIdentifier);
-                    if (getCurrentToken().code != TokenCode.RBRACKET) {
-                        throw new ParseException("Expected ']', found: " + getCurrentToken().code);
-                    }
-                    advance();
-                    while (getCurrentToken().code == TokenCode.LBRACKET) {
-                        advance();
-                        initializer = getEntry(initializer);
-                        if (getCurrentToken().code != TokenCode.RBRACKET) {
-                            throw new ParseException("Expected ']', found: " + getCurrentToken().code);
-                        }
-                        advance();
-                    }
-                    return initializer;
-                }
-                else if (getCurrentToken().code == TokenCode.LBRACKET) {
 //                Node elem = parseLogicalExpression();
                     IdentifierNode variableIdentifier = new IdentifierNode(identifierToken.identifier);
                     advance();
@@ -1902,6 +2064,45 @@ class StringToken extends Token {
     }
 }
 
+class Optimizer {
+
+    private SymbolTable symbolTable; // Будем использовать символьную таблицу для проверки использования переменных
+
+    public Optimizer(SymbolTable symbolTable) {
+        this.symbolTable = symbolTable;
+    }
+
+    public Node optimize(Node ast) {
+        ast = simplifyConstantExpressions(ast);
+        ast = removeUnusedVariables(ast);
+        return ast;
+    }
+
+    private Node simplifyConstantExpressions(Node node) {
+        for (int i = 0; i < node.getChildren().size(); i++) {
+            Node child = node.getChildren().get(i);
+            if (child != null) {
+                Node optimizedChild = simplifyConstantExpressions(child);
+
+                // Проверяем, является ли оптимизированный дочерний узел выражением
+                if (optimizedChild instanceof ExpressionNode exprNode && exprNode.isConstant()) {
+                    // Заменяем выражение его вычисленным значением
+                    node.getChildren().set(i, exprNode.evaluate());
+                } else {
+                    // Если не константа, обновляем дочерний узел
+                    node.getChildren().set(i, optimizedChild);
+                }
+            }
+        }
+        return node;
+    }
+
+    private Node removeUnusedVariables(Node node) {
+        // Реализация удаления неиспользуемых переменных
+        // Проходим по узлам и проверяем, есть ли переменные, не используемые нигде в дереве
+        return node;
+    }
+}
 
 enum TokenCode {
     // Ключевые слова
@@ -2346,6 +2547,9 @@ class Lexer {
                 Parser parser = new Parser(tokenList); // Предположим, что у тебя есть класс Parser
                 System.out.println(123);
                 Node ast = parser.parseProgram();
+                SymbolTable symbolTable = parser.getSymbolTable();
+                Optimizer optimizer = new Optimizer(symbolTable);
+                optimizer.optimize(ast);
                 System.out.println(ast);// Метод для парсинга
                 ast.printTree("", true);
 //                printTree(ast);
