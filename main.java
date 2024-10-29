@@ -283,9 +283,11 @@ class ExpressionNode extends Node {
                 } else if (leftType.equals("string") && rightType.equals("string")) {
                     String result = ((LiteralNode) leftOperand).getValue().toString() + ((LiteralNode) rightOperand).getValue().toString();
                     return new LiteralNode((Object) result, "string");
+                } else if (leftType.equals("dictionary") && rightType.equals("dictionary")) {
+//                    return concatenateDictionary((ListNode) leftOperand, (ListNode) rightOperand);
+                }else if (leftType.equals("list") && rightType.equals("list")) {
+//                    return concatenateLists((ListNode) leftOperand, (ListNode) rightOperand);
                 }
-//                if (leftType.equals("dictionary") && rightType.equals("dictionary")) return;
-//                if (leftType.equals("list") && rightType.equals("list")) return;
 
                 break;
 
@@ -397,6 +399,42 @@ class ExpressionNode extends Node {
         }
         throw new RuntimeException("Invalid operand types for operation: " + leftType + " and " + rightType);
     }
+
+    private Node concatenateLists(ListNode list1, ListNode list2) {
+        List<Node> elements1 = list1.getElements().getStatements();
+        List<Node> elements2 = list2.getElements().getStatements();
+
+        List<Node> concatenatedElements = new ArrayList<>(elements1);
+        concatenatedElements.addAll(elements2);
+
+        BlockNode concatenatedBlock = new BlockNode(concatenatedElements, "new_list");
+
+        return new ListNode(concatenatedBlock, list1.getName());
+    }
+
+//    private Node concatenateDictionaries(DictionaryNode dict1, DictionaryNode dict2) {
+//        List<Node> entries1 = dict1.getElements().getStatements();
+//        List<Node> entries2 = dict2.getElements().getStatements();
+//
+//        List<Node> concatenatedEntries = new ArrayList<>(entries1);
+//
+//        for (Node entry : entries2) {
+//            if (entry instanceof DictionaryEntryNode) {
+//                DictionaryEntryNode entryNode = (DictionaryEntryNode) entry;
+//                boolean keyExists = entries1.stream()
+//                        .anyMatch(e -> e instanceof DictionaryEntryNode &&
+//                                ((DictionaryEntryNode) e).getKey().equals(entryNode.getKey()));
+//                if (!keyExists) {
+//                    concatenatedEntries.add(entryNode);
+//                }
+//            }
+//        }
+//
+//        BlockNode concatenatedBlock = new BlockNode();
+//        concatenatedBlock.setStatements(concatenatedEntries);
+//
+//        return new DictionaryNode(concatenatedBlock, dict1.getName());
+//    }
 }
 
 class ComparisonNode extends Node {
@@ -513,6 +551,9 @@ class BlockNode extends Node {
     @Override
     public String toString() {
         return this.name;
+    }
+    public List<Node> getStatements(){
+        return statements;
     }
 }
 
@@ -668,6 +709,11 @@ class ListNode extends VariableDeclarationNode {
     public String toString() {
         return "List: ";
     }
+
+    public BlockNode getElements() {
+        return elements;
+    }
+
 }
 
 class DictionaryNode extends VariableDeclarationNode {
@@ -2080,9 +2126,7 @@ class Optimizer {
         do {
             flag = false;
             simplifyConstantExpressions(ast);
-
 //            removeUnusedVariables(ast);
-
         } while (flag);
 //        ast = removeUnusedVariables(ast);
         return ast;
@@ -2102,6 +2146,7 @@ class Optimizer {
             Node child = node.getChildren().get(i);
             if (child != null) {
                 Node optimizedChild = simplifyConstantExpressions(child);
+
                 if (optimizedChild instanceof ExpressionNode exprNode && exprNode.isConstant()) {
                     // Заменяем выражение его вычисленным значением
                     node.getChildren().set(i, exprNode.evaluate());
@@ -2114,6 +2159,7 @@ class Optimizer {
         }
         return node;
     }
+
 
     private Node removeUnusedVariables(Node node) {
         // Реализация удаления неиспользуемых переменных
