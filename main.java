@@ -59,25 +59,6 @@ class SymbolTable {
     }
 
 
-    public int getSymbolUseNum(String name) {
-        Symbol symbol = table.get(name);
-        if (symbol != null) {
-            return symbol.numUse;
-        } else {
-            return -1;
-        }
-    }
-
-    public String getSymbolByIndex(String scope, int index) {
-        for (Symbol symbol : table.values()) {
-            if (symbol.scope.equals(scope) && symbol.index == index) {
-                return symbol.name;
-            }
-        }
-        return null;
-    }
-
-
     public void removeSymbol(String name) {
         table.remove(name);
     }
@@ -89,7 +70,7 @@ class SymbolTable {
 
 abstract class Node {
     // Список дочерних узлов
-    public List<Node> children = new ArrayList<>();
+    protected List<Node> children = new ArrayList<>();
 
     // Добавление дочернего узла
     public void addChild(Node child) {
@@ -209,12 +190,13 @@ abstract class Node {
 }
 
 class ProgramNode extends Node {
-
     protected final List<Node> statements;
 
     public ProgramNode() {
         this.statements = new ArrayList<>();
     }
+
+
 
     public void addStatement(Node statement) {
         this.statements.add(statement);
@@ -417,7 +399,25 @@ class ExpressionNode extends Node {
     }
 }
 
+class ComparisonNode extends Node {
+    private final Node leftOperand;
+    private final TokenCode operator;
+    private final Node rightOperand;
 
+    public ComparisonNode(Node leftOperand, TokenCode operator, Node rightOperand) {
+        this.leftOperand = leftOperand;
+        this.operator = operator;
+        this.rightOperand = rightOperand;
+
+        addChild(leftOperand);
+        addChild(rightOperand);
+    }
+
+    @Override
+    public String toString() {
+        return "Comparison: " + operator.toString();
+    }
+}
 
 abstract class DeclarationNode extends Node {
     // Тип декларации: переменная, функция, тип
@@ -743,6 +743,26 @@ class LiteralNode extends ExpressionNode {
     }
 }
 
+class LogicalNode extends Node {
+    private final Node leftOperand;
+    private final TokenCode operator;
+    private final Node rightOperand;
+
+    public LogicalNode(Node leftOperand, TokenCode operator, Node rightOperand) {
+        this.leftOperand = leftOperand;
+        this.operator = operator;
+        this.rightOperand = rightOperand;
+
+        addChild(leftOperand);
+        addChild(rightOperand);
+    }
+
+    @Override
+    public String toString() {
+        return "Logical: " + operator.toString();
+    }
+}
+
 
 class FunctionCall extends Node {
     private final Node funcIdentifier;
@@ -761,6 +781,23 @@ class FunctionCall extends Node {
         return "Function call: ";
     }
 }
+
+
+class NotNode extends Node {
+    private final Node operand;
+    public NotNode(Node operand) {
+        this.operand = operand;
+        addChild(operand); // Добавляем операнд в дочерние узлы
+    }
+
+    @Override
+    public String toString() {
+        return "Not";
+    }
+}
+
+
+
 
 class ParseException extends RuntimeException {
     private final String message;
@@ -916,11 +953,9 @@ class Parser {
 
             if (getCurrentToken().code == TokenCode.FUNC) {
                 advance(); // Пропускаем 'func'
-                this.symbolTable.addSymbol(variableName.identifier + "_" + this.scope, "function", 0, this.scope, -1, null);
 
                 this.scope = variableName.identifier;
-
-
+                this.symbolTable.addSymbol(variableName.identifier + "_" + this.scope, "function", 0, this.scope);
 
                 IdentifierNode init = new IdentifierNode(variableName.identifier);
 //            String functionName = functionToken.identifier;
@@ -995,7 +1030,6 @@ class Parser {
             if (flagVarDeclare) {
                 this.symbolTable.addSymbol(variableName.identifier + "_" + this.scope, "var", this.len, this.scope);
             }
-
             String type = "expression";
             if (initializer instanceof ListNode) {
                 type = "list";
@@ -1004,7 +1038,6 @@ class Parser {
             } else if (initializer instanceof LiteralNode) {
                 type = ((LiteralNode) initializer).getType();
             }
-
             return new VariableDeclarationNode(variableIdentifier, initializer, type);
         } else {
             IdentifierNode variableIdentifier = new IdentifierNode(variableName.identifier);
@@ -1704,11 +1737,7 @@ class Parser {
         } else if (getCurrentToken().code == TokenCode.IDENTIFIER) {
             Identifier identifierToken = (Identifier) getCurrentToken();
             if (program.isFunction(new IdentifierNode(identifierToken.identifier)) != null) {
-
-                List<Node> parameters = new ArrayList<>();
-//                System.out.println(identifierToken.identifier + "_" + this.scope);
-                this.symbolTable.addNumUse(identifierToken.identifier + "_" + this.scope);
-
+                List<Node > parameters = new ArrayList<>();
                 advance();
                 if (getCurrentToken().code == TokenCode.LPAREN) {
                     advance();
@@ -2087,59 +2116,8 @@ class Optimizer {
     }
 
     private Node removeUnusedVariables(Node node) {
-        // Шаг 1: Сбор информации о переменных
-        Set<String> usedVariables = new HashSet<>();
-        markUsedVariables(node, usedVariables);
-
-        // Шаг 2: Удаление неиспользуемых переменных
-        return pruneUnusedVariables(node, usedVariables);
-    }
-
-    private void markUsedVariables(Node node, Set<String> usedVariables) {
-        if (node == null) return; // Проверка на n
-
-        // Если это идентификатор, добавляем его в использованные переменные
-        if (node instanceof IdentifierNode identifierNode) {
-            usedVariables.add(identifierNode.getName());
-        }
-
-        // Рекурсивно проходим по дочерним узлам
-//        for (Node child : node.getChildren()) {
-//            if (child != null) {
-//                markUsedVariables(child, usedVariables);
-//            }
-//        }
-
-        // Рекурсивно проходим по дочерним узлам
-//        for (Symbol child : this.symbolTable.) {
-//            if (child != null) {
-//                markUsedVariables(child, usedVariables);
-//            }
-//        }
-    }
-
-    private Node pruneUnusedVariables(Node node, Set<String> usedVariables) {
-        if (node == null) return null; // Проверка на null
-
-        // Если это узел объявления переменной
-        if (node instanceof VariableDeclarationNode declarationNode) {
-            String variableName = declarationNode.getName().getName();
-            // Если переменная не используется, возвращаем null, чтобы удалить её
-            if (this.symbolTable.getSymbolUseNum(variableName + "_global") <= 0) {
-                return null;
-            }
-        }
-
-        // Рекурсивно обходим дочерние узлы и удаляем неиспользуемые переменные
-        List<Node> children = new ArrayList<>();
-        for (Node child : node.getChildren()) {
-            Node prunedChild = pruneUnusedVariables(child, usedVariables);
-            if (prunedChild != null) {
-                children.add(prunedChild);
-            }
-        }
-
-        node.children = children; // Обновляем список дочерних узлов
+        // Реализация удаления неиспользуемых переменных
+        // Проходим по узлам и проверяем, есть ли переменные, не используемые нигде в дереве
         return node;
     }
 }
@@ -2566,7 +2544,7 @@ class Lexer {
         // Путь к файлу
 
         for (int i = 0; i <= 0; i++) {
-            String filePath = "src/test" + i + ".d";
+            String filePath = "test/test" + i + ".d";
 
             System.out.println();
             System.out.println();
