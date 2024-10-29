@@ -58,6 +58,15 @@ class SymbolTable {
         }
     }
 
+    public int getSymbolLength(String name) {
+        Symbol symbol = table.get(name);
+        if (symbol != null) {
+            return symbol.length;
+        } else {
+            return -1;
+        }
+    }
+
 
     public void removeSymbol(String name) {
         table.remove(name);
@@ -552,6 +561,10 @@ class LiteralNode extends ExpressionNode {
         this.value = value;
     }
 
+    public Object getValue() {
+        return this.value;
+    }
+
     @Override
     public String toString() {
         return "Literal: " + value.toString();
@@ -697,11 +710,29 @@ class Parser {
                 program.addStatement(parsePrimary());
             } else if (getCurrentToken().code == TokenCode.RETURN) {
                 throw new ParseException("ERROR in line: " + getCurrentToken().span.lineNum + ". Return must be used inside the function.");
-            }
-            else {
+            }  else if (getCurrentToken().code == TokenCode.ELSE) {
+                throw new ParseException("ELSE should be used together IF: " + getCurrentToken().span.lineNum);
+            } else if (getCurrentToken().code == TokenCode.EOF) {
                 current++;
-//                throw new ParseException("Unexpected token: " + getCurrentToken().code);
+            } else if (getCurrentToken().code == TokenCode.COMMENT) {
+                current++;
+            }  else if (getCurrentToken().code == TokenCode.SEMICOLON) {
+                current++;
+            } else {
+                throw new ParseException("Incorrect use of " + getCurrentToken().code +  " in line: " + getCurrentToken().span.lineNum);
             }
+//            }else if (getCurrentToken().code == TokenCode.END) {
+//                throw new ParseException("Incorrect use of END: " + getCurrentToken().span.lineNum);
+//            }  else if (getCurrentToken().code == TokenCode.LOOP) {
+//                throw new ParseException("Incorrect use of LOOP: " + getCurrentToken().span.lineNum);
+//            }  else if (getCurrentToken().code == TokenCode.THEN) {
+//                throw new ParseException("Incorrect use of LOOP: " + getCurrentToken().span.lineNum);
+//            }
+
+//            else {
+//                current++;
+////                throw new ParseException("Unexpected token: " + getCurrentToken().code);
+//            }
         }
         this.symbolTable.printTable();
         return program;
@@ -712,15 +743,22 @@ class Parser {
         boolean flagVarDeclare = false;
         if (getCurrentToken().code == TokenCode.VAR) {
             flagVarDeclare = true;
-            advance();
+            advance();// Пропускаем 'var'
         }
-        // Пропускаем 'var'
+        if (getCurrentToken().code == TokenCode.ASSIGN) {
+            throw new ParseException("The name of the variable was omitted in line: " + getCurrentToken().span.lineNum);
+        } else if (getCurrentToken().code != TokenCode.IDENTIFIER) {
+            throw new ParseException("Incorrect use of " + getCurrentToken().code +  " in line: " + getCurrentToken().span.lineNum);
+        }
         Identifier variableName = (Identifier) getCurrentToken();
         advance(); // Пропускаем идентификатор
 
         if (getCurrentToken().code == TokenCode.ASSIGN) {
-            advance();// Пропускаем '='
+            advance();// Пропускаем ':='
             System.out.println(getCurrentToken().code);
+            if (this.symbolTable.getSymbol(variableName.identifier + "_" + this.scope) != null) {
+                throw new ParseException("Line: " + getCurrentToken().span.lineNum + " | The variable named '" + variableName.identifier +  "' has already been declared");
+            }
 //            if (getCurrentToken().code == TokenCode.LBRACKET) {
 //                BlockNode elem = parseList();
 //                return new ListNode(elem, new IdentifierNode(variableName.identifier));
@@ -737,7 +775,81 @@ class Parser {
 //                Node initializer = new DictionaryEntryNode(variableIdentifier , elem);
 //                return new VariableDeclarationNode(variableIdentifier, initializer, null);
 //            }
+
+            if (getCurrentToken().code == TokenCode.FUNC) {
+                advance(); // Пропускаем 'func'
+
+                this.scope = variableName.identifier;
+                this.symbolTable.addSymbol(variableName.identifier + "_" + this.scope, "function", 0, this.scope);
+
+                IdentifierNode init = new IdentifierNode(variableName.identifier);
+//            String functionName = functionToken.identifier;
+
+
+                if (getCurrentToken().code != TokenCode.LPAREN) {
+                    throw new ParseException("Expected '(', found: " + getCurrentToken());
+                }
+                advance(); // Пропускаем '('
+
+
+                List<Node > parameters = new ArrayList<>();
+                if (getCurrentToken().code != TokenCode.RPAREN) {
+                    VariableDeclarationNode re = parseParameter();
+                    this.symbolTable.addSymbol(re.variableName.getName() + "_" + this.scope, "param", 0, variableName.identifier);
+                    parameters.add(re);
+
+                    while (getCurrentToken().code == TokenCode.COMMA) {
+                        advance(); // Пропускаем запятую
+                        re = parseParameter();
+                        this.symbolTable.addSymbol(re.variableName.getName() + "_" + this.scope, "param", 0, variableName.identifier);
+                        parameters.add(re);
+                    }
+                }
+
+
+                BlockNode param = new BlockNode(parameters, "param");
+                if (getCurrentToken().code != TokenCode.RPAREN) {
+                    throw new ParseException("Expected ')', found: " + getCurrentToken());
+                }
+                advance(); // Пропускаем ')'
+
+
+                if (getCurrentToken().code == TokenCode.IMPLICATION) {
+                    advance(); // Пропускаем '=>'
+                    Node functionBody = parseStatement();
+                    if (getCurrentToken().code != TokenCode.SEMICOLON) {
+                        throw new ParseException("Expected ';', found: " + getCurrentToken());
+                    }
+                    List<Node > headerL = new ArrayList<>();
+                    headerL.add(init);
+                    headerL.add(param);
+                    BlockNode headerBlock = new BlockNode(headerL, "head");
+
+                    List<Node > bodyBlock = new ArrayList<>();
+                    bodyBlock.add(functionBody);
+                    BlockNode body = new BlockNode(bodyBlock, "body");
+                    advance(); // Пропускаем 'end'
+                    FunctionDeclarationNode fincRe = new FunctionDeclarationNode(headerBlock, body);
+                    IdentifierNode variableIdentifier = new IdentifierNode(variableName.identifier);
+                    if (flagVarDeclare) {
+                        this.symbolTable.addSymbol(variableName.identifier + "_" + this.scope, "var", 0, this.scope);
+                    }
+                    return new VariableDeclarationNode(variableIdentifier, fincRe, null);
+                } else {
+                    throw new ParseException("Expected '>=', found: " + getCurrentToken().code);
+                }
+            }
+            boolean flag = false;
+            String last = "";
+            if (getCurrentToken().code == TokenCode.LBRACE) {
+                flag = true;
+                last = this.scope;
+                this.scope = variableName.identifier;
+            }
             Node initializer = (Node) parseLogicalExpression();
+            if (flag) {
+                this.scope = last;
+            }
             IdentifierNode variableIdentifier = new IdentifierNode(variableName.identifier);
             if (flagVarDeclare) {
                 this.symbolTable.addSymbol(variableName.identifier + "_" + this.scope, "var", this.len, this.scope);
@@ -808,8 +920,7 @@ class Parser {
         if (getCurrentToken().code == TokenCode.FUNC) {
             advance(); // Пропускаем 'func'
 
-
-            if (getCurrentToken().code != TokenCode.IDENTIFIER) {
+            if (getCurrentToken().code == TokenCode.IDENTIFIER) {
                 throw new ParseException("Expected function name, found: " + getCurrentToken());
             }
             Identifier functionToken = (Identifier) getCurrentToken();
@@ -1194,6 +1305,7 @@ class Parser {
         if (isComparisonOperator(operator)) {
             advance();
             Node rightOperand = parseExpression();
+            System.out.println(((LiteralNode) leftOperand).getValue());
             leftOperand = new ComparisonNode(leftOperand, operator, rightOperand);
         }
 
@@ -1250,9 +1362,19 @@ class Parser {
             }
 
             advance(); // Пропускаем ':'
+            boolean flag = false;
+            String last = "";
+            if (getCurrentToken().code == TokenCode.LBRACE) {
+                last = this.scope;
+                flag = true;
+                this.scope = ((IdentifierNode) key).getName();
+            }
             Node value = parseExpression(); // Разбираем значение
+            this.symbolTable.addSymbol(((IdentifierNode) key).getName() + "_" + this.scope, "dict_key", 0, this.scope);
             entries.add(new DictionaryEntryNode(key, value)); // Добавляем пару в список
-
+            if (flag) {
+                this.scope = last;
+            }
             // Пока есть запятые, продолжаем разбор пар
             while (getCurrentToken().code == TokenCode.COMMA) {
                 advance(); // Пропускаем запятую
@@ -1260,16 +1382,27 @@ class Parser {
 
                 if (getCurrentToken().code == TokenCode.ASSIGN) {
                     advance(); // Пропускаем ':'
+                    flag = false;
+                    last = "";
+                    if (getCurrentToken().code == TokenCode.LBRACE) {
+                        last = this.scope;
+                        flag = true;
+                        this.scope = ((IdentifierNode) key).getName();
+                    }
                     value = parseExpression(); // Разбираем значение
+                    if (flag) {
+                        this.scope = last;
+                    }
                     entries.add(new DictionaryEntryNode(key, value)); // Добавляем следующую пару
-                }
-                else if (getCurrentToken().code == TokenCode.COMMA || getCurrentToken().code == TokenCode.RBRACE) {
+                    this.symbolTable.addSymbol(((IdentifierNode) key).getName() + "_" + this.scope, "dict_key", 0, this.scope);
+                } else if (getCurrentToken().code == TokenCode.COMMA || getCurrentToken().code == TokenCode.RBRACE) {
                     entries.add(new DictionaryEntryNode(key, null)); // Добавляем следующую пару
-                }
-                else {
-                    throw new ParseException("Expected ':', found: " + getCurrentToken().code);
+                    this.symbolTable.addSymbol(((IdentifierNode) key).getName() + "_" + this.scope, "dict_key", 0, this.scope);
+                } else {
+                    throw new ParseException("Expected ':=', found: " + getCurrentToken().code);
                 }
             }
+
         }
 
         if (getCurrentToken().code != TokenCode.RBRACE) {
@@ -1454,9 +1587,29 @@ class Parser {
                     IdentifierNode variableIdentifier = new IdentifierNode(identifierToken.identifier);
                     advance();
                     Node initializer = getEntry(variableIdentifier);
+//                    ((IdentifierNode) initializer).getName();
                     while (getCurrentToken().code == TokenCode.DOT) {
                         advance();
                         initializer = getEntry(initializer);
+//                        ((DictionaryEntryNode) initializer).getValue();
+                    }
+                    return initializer;
+                } else if (getCurrentToken().code == TokenCode.LBRACKET) {
+//                Node elem = parseLogicalExpression();
+                    IdentifierNode variableIdentifier = new IdentifierNode(identifierToken.identifier);
+                    advance();
+                    Node initializer = getEntry(variableIdentifier);
+                    if (getCurrentToken().code != TokenCode.RBRACKET) {
+                        throw new ParseException("Expected ']', found: " + getCurrentToken().code);
+                    }
+                    advance();
+                    while (getCurrentToken().code == TokenCode.LBRACKET) {
+                        advance();
+                        initializer = getEntry(initializer);
+                        if (getCurrentToken().code != TokenCode.RBRACKET) {
+                            throw new ParseException("Expected ']', found: " + getCurrentToken().code);
+                        }
+                        advance();
                     }
                     return initializer;
                 }
@@ -1497,7 +1650,10 @@ class Parser {
             }
         }
 
-        throw new ParseException("Unexpected token: " + getCurrentToken().code);
+        throw new ParseException("Incorrect use of " + getCurrentToken().code +  " in line: " + getCurrentToken().span.lineNum);
+
+
+//        throw new ParseException("Unexpected token: " + getCurrentToken().code);
     }
 
     private Node getEntry(Node variableIdentifier) {
@@ -1522,6 +1678,16 @@ class Parser {
             Node initializer = new DictionaryEntryNode(variableIdentifier , key);
             advance();
             return initializer;
+        } else if (getCurrentToken().code == TokenCode.MINUS) {
+            advance();
+            if (getCurrentToken().code == TokenCode.INTEGER_LITERAL) {
+                key = new IdentifierNode("-" + ((Integer) (((IntegerToken) getCurrentToken()).value)).toString());
+                Node initializer = new DictionaryEntryNode(variableIdentifier , key);
+                advance();
+                return initializer;
+            } else {
+                throw new ParseException("Expected integer index: " + getCurrentToken().code);
+            }
         } else if (getCurrentToken().code == TokenCode.STRING_LITERAL) {
             key = new IdentifierNode(((StringToken) getCurrentToken()).value);
             Node initializer = new DictionaryEntryNode(variableIdentifier , key);
@@ -1580,7 +1746,6 @@ class Parser {
             return parseDeclaration();
         } else if (getCurrentToken().code == TokenCode.RETURN) {
             if (this.scope != "global") {
-                System.out.println("213123");
                 return parseReturn();
             }
             throw new ParseException("ERROR in line: " + getCurrentToken().span.lineNum + ". Return must be used inside the function.");
