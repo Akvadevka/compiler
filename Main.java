@@ -1,3 +1,4 @@
+import java.io.Console;
 import java.util.*;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -260,8 +261,9 @@ class ProgramNode extends Node {
 }
 class Interpreter {
     private Environment environment;
-    public Interpreter() {
-        environment = new Environment();
+
+    public Interpreter(Environment initEnvironment) {
+        environment = initEnvironment;
     }
 
     // Метод interpret, который принимает корневой узел программы
@@ -526,6 +528,14 @@ class VariableDeclarationNode extends DeclarationNode {
     }
     @Override
     public void execute(Environment environment) {
+        if (this.initializer instanceof LiteralNode) {
+            environment.addVariable(this.variableName.getName(), ((LiteralNode) this.initializer).getValue(), "global");
+        } else if (this.initializer instanceof ListNode) {
+            environment.addVariable(this.variableName.getName(), ((ListNode) this.initializer).toValueList(), "global");
+        } else if (this.initializer instanceof DictionaryNode) {
+            environment.addVariable(this.variableName.getName(), ((DictionaryNode) this.initializer).toValueDictionary(), "global");
+        }
+//        System.out.println(environment.getVariable(this.variableName.getName(), "global"));
     }
 }
 
@@ -565,6 +575,8 @@ class BlockNode extends Node {
             addChild(statement);
         }
     }
+
+
     public IdentifierNode getName() {
         return (IdentifierNode) this.statements.get(0);
     }
@@ -738,6 +750,18 @@ class PrintNode extends StatementNode {
 
     @Override
     public void execute(Environment environment) {
+        for (int i = 0; i < this.expression.getChildren().size(); i++) {
+            if (this.expression.getChildren().get(i) instanceof DictionaryEntryCall) {
+                DictionaryEntryCall element = (DictionaryEntryCall) this.expression.getChildren().get(i);
+                if (element.getKey() instanceof DictionaryEntryCall) {
+                    element.getKey().execute(environment);
+                }
+                System.out.println();
+                System.out.println(((LinkedHashMap<Object, Object>) environment.getVariable(((IdentifierNode) element.getKey()).getName(), "global").getValue()).get(((IdentifierNode) element.getValue()).getName()));
+                System.out.println();
+            }
+        }
+//        System.out.println(this.expression.getChildren().get(0) instanceof DictionaryEntryNode);
     }
 }
 
@@ -748,7 +772,6 @@ class ListNode extends VariableDeclarationNode {
 
     public ListNode(BlockNode elements, IdentifierNode name) {
         super(name, null, null);
-        System.out.println(1233);
         this.elements = elements;
         this.name = name;
         addChild(name); // Добавляем все элементы в дочерние
@@ -766,19 +789,37 @@ class ListNode extends VariableDeclarationNode {
 
     public int size() {
         int size = 0;
-
-
-
         if (elements != null) {
             size += elements.size();
         }
-
         return size;
     }
 
     @Override
     public String toString() {
         return "List: ";
+    }
+
+    public List<Object> toValueList() {
+        List<Object> valueList = new ArrayList<>();
+        if (elements != null) {
+            for (int i = 0; i < elements.size(); i++) {
+                if (elements.get(i) instanceof LiteralNode) {
+                    LiteralNode element = (LiteralNode) elements.get(i);
+                    valueList.add(element.getValue());
+                } else if(elements.get(i) instanceof ListNode) {
+                    valueList.add(((ListNode) elements.get(i)).toValueList());
+                } else if(elements.get(i) instanceof DictionaryNode) {
+                    valueList.add(((DictionaryNode) elements.get(i)).toValueDictionary());
+                }
+            }
+        }
+        return valueList;
+    }
+
+    @Override
+    public void execute(Environment environment) {
+
     }
 }
 
@@ -796,6 +837,40 @@ class DictionaryNode extends VariableDeclarationNode {
 
     public IdentifierNode getName() {
         return variableName;
+    }
+
+    public LinkedHashMap<Object, Object> toValueDictionary() {
+        LinkedHashMap<Object, Object> dictionary = new LinkedHashMap<>();
+        if (entriesBlock != null) {
+            for (int i = 0; i < entriesBlock.size(); i++) {
+                if (entriesBlock.get(i) instanceof DictionaryEntryNode) {
+                    DictionaryEntryNode entry = (DictionaryEntryNode) entriesBlock.get(i);
+                    Object key = ((IdentifierNode) entry.getKey()).getName();
+                    Object value = getValueFromEntry(entry.getValue());
+                    dictionary.put(key, value);
+                }
+            }
+        }
+        return dictionary;
+    }
+
+    private Object getValueFromEntry(Object entryValue) {
+        if (entryValue instanceof LiteralNode) {
+            return ((LiteralNode) entryValue).getValue();
+        } else if (entryValue instanceof ListNode) {
+            return ((ListNode) entryValue).toValueList();
+        } else if (entryValue instanceof DictionaryNode) {
+            return ((DictionaryNode) entryValue).toValueDictionary();
+        } else {
+            return null;
+        }
+    }
+
+    public Object getValueByIndex(LinkedHashMap<Object, Object> dictionary, int index) {
+        if (index < 0 || index >= dictionary.size()) {
+            throw new IndexOutOfBoundsException("Индекс вне границ словаря.");
+        }
+        return new ArrayList<>(dictionary.values()).get(index);
     }
 
     @Override
@@ -816,6 +891,10 @@ class DictionaryEntryNode extends Node {
         addChild(value); // Добавляем значение в дочерние узлы
     }
 
+    public Node getKey() {
+        return this.key;
+    }
+
     public Node getValue() {
         return this.value;
     }
@@ -830,14 +909,49 @@ class DictionaryEntryNode extends Node {
     }
 }
 
+class DictionaryEntryCall extends Node {
+    private final Node key;
+    private final Node value;
+
+    public DictionaryEntryCall(Node key, Node value) {
+        this.key = key;
+        this.value = value;
+
+        addChild(key); // Добавляем ключ в дочерние узлы
+        addChild(value); // Добавляем значение в дочерние узлы
+    }
+
+    public Node getKey() {
+        return this.key;
+    }
+
+    public Node getValue() {
+        return this.value;
+    }
+
+    @Override
+    public String toString() {
+        return "Entry Call:";
+    }
+
+    public Object calcEntryValue(Environment environment) {
+        LinkedHashMap<Object, Object> dict = (LinkedHashMap<Object, Object>) environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue();
+        return null;
+    }
+
+    @Override
+    public void execute(Environment environment) {
+    }
+}
 
 
-class LiteralNode extends ExpressionNode {
+
+class LiteralNode extends Node {
     private final Object value;
     private String type;
 
     public LiteralNode(Object value, String type) {
-        super(null, null, null);
+//        super(null, null, null);
         this.value = value;
         this.type = type;
     }
@@ -856,6 +970,10 @@ class LiteralNode extends ExpressionNode {
     }
     public boolean isConstant() {
         return true; // Литералы всегда являются константами
+    }
+
+    @Override
+    public void execute(Environment environment) {
     }
 }
 
@@ -1529,7 +1647,7 @@ class Parser {
             comparison = parseComparison();
         }
 
-        while (getCurrentToken().code == TokenCode.AND || getCurrentToken().code == TokenCode.OR || getCurrentToken().code == TokenCode.XOR) {
+        while (getCurrentToken().code == TokenCode.AND || getCurrentToken().code == TokenCode.OR || getCurrentToken().code == TokenCode.XOR || getCurrentToken().code == TokenCode.PLUS || getCurrentToken().code == TokenCode.MULTIPLY || getCurrentToken().code == TokenCode.MINUS || getCurrentToken().code == TokenCode.DIVIDE || getCurrentToken().code == TokenCode.GREATER || getCurrentToken().code == TokenCode.LESS) {
             TokenCode logicalOperator = getCurrentToken().code;
             advance(); // Пропускаем логический оператор
             Node rightOperand = parseComparison();
@@ -1560,7 +1678,6 @@ class Parser {
                 return new ExpressionNode(null, TokenCode.NOT, innerComparison);
             }
         }
-
         if (getCurrentToken().code == TokenCode.LPAREN) {
             advance(); // Пропускаем '('
             Node innerComparison = parseLogicalExpression();
@@ -1568,10 +1685,12 @@ class Parser {
                 throw new ParseException("Expected ')', found: " + getCurrentToken());
             }
             advance(); // Пропускаем ')'
+            System.out.println(innerComparison);
             return innerComparison;
         }
 
         Node leftOperand = parseExpression();
+
 
         TokenCode operator = getCurrentToken().code;
 //        if (operator == TokenCode.DOT) {
@@ -1583,13 +1702,16 @@ class Parser {
         if (isComparisonOperator(operator)) {
             advance();
             Node rightOperand = parseExpression();
+            System.out.println("-1");
+            System.out.println(rightOperand);
+            System.out.println("-2");
 
 //            System.out.println(((LiteralNode) leftOperand).getValue());
             leftOperand = new ExpressionNode(leftOperand, operator, rightOperand);
         }
 
 
-        while (getCurrentToken().code == TokenCode.AND || getCurrentToken().code == TokenCode.OR || getCurrentToken().code == TokenCode.XOR) {
+        while (getCurrentToken().code == TokenCode.AND || getCurrentToken().code == TokenCode.OR || getCurrentToken().code == TokenCode.XOR || getCurrentToken().code == TokenCode.PLUS || getCurrentToken().code == TokenCode.MULTIPLY || getCurrentToken().code == TokenCode.MINUS || getCurrentToken().code == TokenCode.DIVIDE || getCurrentToken().code == TokenCode.GREATER || getCurrentToken().code == TokenCode.LESS) {
             TokenCode logicalOperator = getCurrentToken().code;
             advance(); // Пропускаем логический оператор
             Node rightOperand = parseComparison();
@@ -1603,9 +1725,24 @@ class Parser {
 
     private Node parseComparisonWithoutLogicalOperators() {
         Node leftOperand = parseExpression();
-
+        //TODO: Попробуй сделать isComparisonOperator для всех операторов, мб отработает
         TokenCode operator = getCurrentToken().code;
         if (isComparisonOperator(operator)) {
+            advance(); // Пропускаем оператор
+            Node rightOperand = parseExpression();
+            leftOperand = new ExpressionNode(leftOperand, operator, rightOperand);
+        }
+
+        return leftOperand;
+    }
+
+
+
+    private Node parseFullExpression() {
+        Node leftOperand = parseExpression();
+        //TODO: Попробуй сделать isComparisonOperator для всех операторов, мб отработает
+        TokenCode operator = getCurrentToken().code;
+        if (isComparisonOperatorFull(operator)) {
             advance(); // Пропускаем оператор
             Node rightOperand = parseExpression();
             leftOperand = new ExpressionNode(leftOperand, operator, rightOperand);
@@ -1617,7 +1754,7 @@ class Parser {
     private Node parseLogicalExpression() {
         Node leftOperand = parseComparison();
 
-        while (getCurrentToken().code == TokenCode.AND || getCurrentToken().code == TokenCode.OR || getCurrentToken().code == TokenCode.XOR) {
+        while (getCurrentToken().code == TokenCode.AND || getCurrentToken().code == TokenCode.OR || getCurrentToken().code == TokenCode.XOR || getCurrentToken().code == TokenCode.PLUS || getCurrentToken().code == TokenCode.MULTIPLY || getCurrentToken().code == TokenCode.MINUS || getCurrentToken().code == TokenCode.DIVIDE || getCurrentToken().code == TokenCode.GREATER || getCurrentToken().code == TokenCode.LESS) {
             TokenCode operator = getCurrentToken().code;
             advance(); // Пропускаем логический оператор
             Node rightOperand = parseComparison();
@@ -1704,6 +1841,18 @@ class Parser {
                 code == TokenCode.GREATER_EQUAL ||
                 code == TokenCode.LESS_EQUAL ||
                 code == TokenCode.EQUAL;
+    }
+
+
+    private boolean isComparisonOperatorFull(TokenCode code) {
+        return code == TokenCode.GREATER ||
+                code == TokenCode.LESS ||
+                code == TokenCode.GREATER_EQUAL ||
+                code == TokenCode.LESS_EQUAL ||
+                code == TokenCode.EQUAL ||
+                code == TokenCode.XOR ||
+                code == TokenCode.OR ||
+                code == TokenCode.AND;
     }
 
 
@@ -1871,7 +2020,7 @@ class Parser {
                     advance();  // Переходим к следующему токену
                     Node initializer = getEntry(variableIdentifier);  // Получаем начальный узел
 
-                    String index = ((IdentifierNode) ((DictionaryEntryNode) initializer).getValue()).getName();
+                    String index = ((IdentifierNode) ((DictionaryEntryCall) initializer).getValue()).getName();
                     String indexName = null;
 
                     // Проверка, является ли `index` числовым значением
@@ -1900,7 +2049,7 @@ class Parser {
                         initializer = getEntry(initializer);  // Получаем узел для вложенного элемента
 
                         // Получаем название вложенного ключа
-                        index = ((IdentifierNode) ((DictionaryEntryNode) initializer).getValue()).getName();
+                        index = ((IdentifierNode) ((DictionaryEntryCall) initializer).getValue()).getName();
                         indexName = null;
 
                         if (isInteger(index)) {
@@ -1941,7 +2090,7 @@ class Parser {
                     ListNode listNode = (ListNode) this.symbolTable.getSymbolNode(identifierToken.identifier + "_" + this.scope);
 
 // Проверяем, что начальный индекс в допустимых пределах
-                    int index = ((IdentifierNode) ((DictionaryEntryNode) initializer).getValue()).getValue();
+                    int index = ((IdentifierNode) ((DictionaryEntryCall) initializer).getValue()).getValue();
                     int listLength = listNode.size();
                     if (index < 0 || index >= listLength) {
                         throw new ParseException("Index " + index + " out of bounds for list " + identifierToken.identifier);
@@ -1958,7 +2107,7 @@ class Parser {
                     while (getCurrentToken().code == TokenCode.LBRACKET) {
                         advance();
                         initializer = getEntry(initializer);
-                        int nestedIndex = ((IdentifierNode) ((DictionaryEntryNode) initializer).getValue()).getValue();
+                        int nestedIndex = ((IdentifierNode) ((DictionaryEntryCall) initializer).getValue()).getValue();
 
                         if (!(listNode instanceof ListNode)) {
                             throw new ParseException("Это не лист");
@@ -2015,14 +2164,14 @@ class Parser {
         IdentifierNode key = null;
         if (getCurrentToken().code == TokenCode.IDENTIFIER) {
             key = new IdentifierNode(((Identifier) getCurrentToken()).identifier);
-            Node initializer = new DictionaryEntryNode(variableIdentifier , key);
+            Node initializer = new DictionaryEntryCall(variableIdentifier , key);
             advance();
             return initializer;
         } else if (getCurrentToken().code == TokenCode.MINUS) {
             advance();
             if (getCurrentToken().code == TokenCode.INTEGER_LITERAL) {
                 key = new IdentifierNode("-" + ((Integer) (((IntegerToken) getCurrentToken()).value)).toString());
-                Node initializer = new DictionaryEntryNode(variableIdentifier , key);
+                Node initializer = new DictionaryEntryCall(variableIdentifier , key);
                 advance();
                 return initializer;
             } else {
@@ -2030,14 +2179,14 @@ class Parser {
             }
         } else if (getCurrentToken().code == TokenCode.INTEGER_LITERAL) {
             key = new IdentifierNode(((Integer) (((IntegerToken) getCurrentToken()).value)).toString());
-            Node initializer = new DictionaryEntryNode(variableIdentifier , key);
+            Node initializer = new DictionaryEntryCall(variableIdentifier , key);
             advance();
             return initializer;
         } else if (getCurrentToken().code == TokenCode.MINUS) {
             advance();
             if (getCurrentToken().code == TokenCode.INTEGER_LITERAL) {
                 key = new IdentifierNode("-" + ((Integer) (((IntegerToken) getCurrentToken()).value)).toString());
-                Node initializer = new DictionaryEntryNode(variableIdentifier , key);
+                Node initializer = new DictionaryEntryCall(variableIdentifier , key);
                 advance();
                 return initializer;
             } else {
@@ -2045,12 +2194,12 @@ class Parser {
             }
         } else if (getCurrentToken().code == TokenCode.STRING_LITERAL) {
             key = new IdentifierNode(((StringToken) getCurrentToken()).value);
-            Node initializer = new DictionaryEntryNode(variableIdentifier , key);
+            Node initializer = new DictionaryEntryCall(variableIdentifier , key);
             advance();
             return initializer;
         } else if (getCurrentToken().code == TokenCode.LENGTH) {
             key = new IdentifierNode("LENGTH");
-            Node initializer = new DictionaryEntryNode(variableIdentifier , key);
+            Node initializer = new DictionaryEntryCall(variableIdentifier , key);
             advance();
             return initializer;
         }
@@ -2120,6 +2269,91 @@ class Parser {
         throw new ParseException("Unexpected statement type: " + getCurrentToken().code + " in line " + getCurrentToken().span.lineNum);
     }
 }
+
+
+class Variable {
+    private String name;
+    private Object value;
+    private String scope;
+
+    public Variable(String name, Object value, String scope) {
+        this.name = name;
+        this.value = value;
+        this.scope = scope;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public Object getValue() {
+        return value;
+    }
+
+    public void setValue(Object value) {
+        this.value = value;
+    }
+
+    public String getScope() {
+        return scope;
+    }
+
+    @Override
+    public String toString() {
+        return "Variable{name='" + name + "', value=" + value + ", scope='" + scope + "'}";
+    }
+}
+
+class Environment {
+    private String name;
+    private String scopeType;
+    private Map<String, Map<String, Variable>> scopedVariables;
+
+    public Environment(String name, String scopeType) {
+        this.name = name;
+        this.scopeType = scopeType;
+        this.scopedVariables = new HashMap<>();
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public String getScopeType() {
+        return scopeType;
+    }
+
+    public void addVariable(String name, Object value, String scopeType) {
+        scopedVariables.putIfAbsent(scopeType, new HashMap<>());
+        Map<String, Variable> scopeVars = scopedVariables.get(scopeType);
+        if (scopeVars.containsKey(name)) {
+            updateVariable(name, value, scopeType);
+//            throw new RuntimeException("Переменная " + name + " уже существует в области " + scopeType + ".");
+        }
+        scopeVars.put(name, new Variable(name, value, scopeType));
+    }
+
+    public void updateVariable(String name, Object value, String scopeType) {
+        Map<String, Variable> scopeVars = scopedVariables.get(scopeType);
+        if (scopeVars == null || !scopeVars.containsKey(name)) {
+            throw new RuntimeException("Переменная " + name + " не найдена в области " + scopeType + ".");
+        }
+        scopeVars.get(name).setValue(value);
+    }
+
+    public Variable getVariable(String name, String scopeType) {
+        Map<String, Variable> scopeVars = scopedVariables.get(scopeType);
+        if (scopeVars == null || !scopeVars.containsKey(name)) {
+            throw new RuntimeException("Переменная " + name + " не найдена в области " + scopeType + ".");
+        }
+        return scopeVars.get(name);
+    }
+
+    public Map<String, Variable> getVariablesInScope(String scopeType) {
+        return scopedVariables.getOrDefault(scopeType, new HashMap<>());
+    }
+}
+
 
 class LexerException extends RuntimeException {
     public LexerException(String message) {
@@ -2804,7 +3038,8 @@ class Lexer {
                 optimizer.optimize(ast);
                 System.out.println(ast);// Метод для парсинга
                 ast.printTree("", true);
-                Interpreter interpreter = new Interpreter();
+                Environment init = new Environment("global", "global");
+                Interpreter interpreter = new Interpreter(init);
                 interpreter.interpret(ast);
 
             } catch (IOException e) {
