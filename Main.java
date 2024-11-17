@@ -3,23 +3,30 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 
+
 class SymbolTable {
     private static class Symbol {
         public String name;
         public String type;
         public int length;
         public String scope;
+        public int index;
+        public Node node;
+        public int numUse;
 
-        Symbol(String name, String type, int length, String scope) {
+        Symbol(String name, String type, int length, String scope, int index, Node node) {
             this.name = name;
             this.type = type;
             this.length = length;
             this.scope = scope;
+            this.index = index;
+            this.node = node;
+            this.numUse = 0;
         }
 
         @Override
         public String toString() {
-            return String.format("Name: %s, Type: %s, Length: %d, Scope: %s", name, type, length, scope);
+            return String.format("Name: %s, Type: %s, Length: %d, Scope: %s, Index %d, numUse  %d", name, type, length, scope, index, numUse);
         }
 
     }
@@ -30,12 +37,15 @@ class SymbolTable {
         this.table = new HashMap<>();
     }
 
-    public void addSymbol(String name, String type, int length, String scope) {
-        Symbol symbol = new Symbol(name, type, length, scope);
+    public void addSymbol(String name, String type, int length, String scope, int index, Node node) {
+        Symbol symbol = new Symbol(name, type, length, scope, index, node);
         table.put(name, symbol);
     }
 
-
+    public void addNumUse(String name) {
+        table.get(name).numUse += 1;
+        System.out.println(table.get(name).numUse);
+    }
 
     public Symbol getSymbol(String name) {
         return table.get(name);
@@ -49,6 +59,17 @@ class SymbolTable {
             return null;
         }
     }
+
+    public Node getSymbolNode(String name) {
+        Symbol symbol = table.get(name);
+        if (symbol != null) {
+            return symbol.node;
+        } else {
+            return null;
+        }
+    }
+
+
     public int getSymbolLength(String name) {
         Symbol symbol = table.get(name);
         if (symbol != null) {
@@ -56,6 +77,25 @@ class SymbolTable {
         } else {
             return -1;
         }
+    }
+
+
+    public int getSymbolUseNum(String name) {
+        Symbol symbol = table.get(name);
+        if (symbol != null) {
+            return symbol.numUse;
+        } else {
+            return -1;
+        }
+    }
+
+    public String getSymbolByIndex(String scope, int index) {
+        for (Symbol symbol : table.values()) {
+            if (symbol.scope.equals(scope) && symbol.index == index) {
+                return symbol.name;
+            }
+        }
+        return null;
     }
 
 
@@ -70,7 +110,7 @@ class SymbolTable {
 
 abstract class Node {
     // Список дочерних узлов
-    protected List<Node> children = new ArrayList<>();
+    public List<Node> children = new ArrayList<>();
 
     // Добавление дочернего узла
     public void addChild(Node child) {
@@ -85,7 +125,8 @@ abstract class Node {
         return null;
     }
 
-    // Метод для поиска переменной по имени
+    public abstract void execute(Environment environment);
+
     public VariableDeclarationNode isVariable(IdentifierNode name) {
         // Применяем поиск в текущем узле
         if (!this.children.isEmpty()) {
@@ -117,7 +158,7 @@ abstract class Node {
             System.out.print("├── ");
             indent += "│   ";
         }
-        System.out.println(this); // или используйте toString() для вывода
+        System.out.println(this);
         if (getChildren() != null) {
             for (Node child : getChildren()) {
                 if (child != null) {
@@ -131,23 +172,23 @@ abstract class Node {
         if (current == null) {
             return null;
         }
-        // Если текущий узел - это функция, проверяем имя
+
         if (current instanceof FunctionDeclarationNode) {
             FunctionDeclarationNode functionNode = (FunctionDeclarationNode) current;
             if (functionNode.getName().getName().equals(name.getName())) {
-                return functionNode; // Функция найдена
+                return functionNode;
             }
         }
-        // Рекурсивный поиск в дочерних узлах
+
 
         for (Node child : current.getChildren()) {
             FunctionDeclarationNode result = searchFunction(child, name);
             if (result != null) {
-                return result; // Если нашли, возвращаем
+                return result;
             }
         }
 
-        return null; // Если не нашли
+        return null;
     }
 
     private VariableDeclarationNode searchVariable(Node current, IdentifierNode name) {
@@ -157,27 +198,26 @@ abstract class Node {
         System.out.println("H: ");
         System.out.println(current);
         System.out.println(" ");
-        // Если текущий узел - это переменная, проверяем имя
+
         if (current instanceof VariableDeclarationNode) {
             VariableDeclarationNode variableNode = (VariableDeclarationNode) current;
 
             if (variableNode.getName() != null && variableNode.getName().getName().equals(name.getName())) {
-                return variableNode; // Переменная найдена
+                return variableNode;
             }
         }
 
-        // Рекурсивный поиск в дочерних узлах
+
         for (Node child : current.getChildren()) {
             VariableDeclarationNode result = searchVariable(child, name);
             if (result != null) {
-                return result; // Если нашли, возвращаем
+                return result;
             }
         }
 
-        return null; // Если не нашли
+        return null;
     }
 
-    // Визуализация дерева в виде строки
     @Override
     public abstract String toString();
 
@@ -189,26 +229,49 @@ abstract class Node {
     }
 }
 
+
 class ProgramNode extends Node {
-    protected final List<Node> statements;
+    public List<Node> statements;
 
     public ProgramNode() {
         this.statements = new ArrayList<>();
     }
 
-
-
+    public void set(List<Node> statements) {
+        this.statements = statements;
+    }
     public void addStatement(Node statement) {
         this.statements.add(statement);
-        addChild(statement); // Добавляем в дочерние узлы
+        addChild(statement);
     }
 
     @Override
     public String toString() {
         return "Program";
     }
-}
 
+    @Override
+    public void execute(Environment environment) {
+        // Выполняем все дочерние узлы программы
+        for (Node child : children) {
+            child.execute(environment); // Рекурсивно вызываем execute для каждого дочернего узла
+        }
+    }
+}
+class Interpreter {
+    private Environment environment;
+    public Interpreter() {
+        environment = new Environment();
+    }
+
+    // Метод interpret, который принимает корневой узел программы
+    public void interpret(ProgramNode programNode) {
+        // Проходим по всем дочерним узлам программы
+        for (Node child : programNode.getChildren()) {
+            child.execute(environment);
+        }
+    }
+}
 class ExpressionNode extends Node {
     private Node leftOperand;
     private final TokenCode operator;
@@ -235,6 +298,10 @@ class ExpressionNode extends Node {
         return "Expression: " + operator.toString();
     }
 
+    @Override
+    public void execute(Environment environment) {
+    }
+
     public Node getLeftOp() {
         return this.leftOperand;
     }
@@ -251,21 +318,21 @@ class ExpressionNode extends Node {
         this.leftOperand = left;
     }
 
-    // Метод для установки правого поддерева
+
     public void setRight(Node right) {
         this.rightOperand = right;
     }
 
     public Node evaluate() {
-        // Проверим, являются ли оба операнда литеральными значениями
         if (leftOperand instanceof LiteralNode && rightOperand instanceof LiteralNode) {
             Node result = checkTypes();
             Optimizer.flag = true;
             return result;
         }
-        // Если вычисление невозможно, возвращаем текущий узел
+
         return this;
     }
+
     public Node checkTypes() {
         String leftType = ((LiteralNode) leftOperand).getType();
         String rightType = ((LiteralNode) rightOperand).getType();
@@ -283,12 +350,9 @@ class ExpressionNode extends Node {
                 } else if (leftType.equals("string") && rightType.equals("string")) {
                     String result = ((LiteralNode) leftOperand).getValue().toString() + ((LiteralNode) rightOperand).getValue().toString();
                     return new LiteralNode((Object) result, "string");
-                } else if (leftType.equals("dictionary") && rightType.equals("dictionary")) {
-//                    return concatenateDictionary((ListNode) leftOperand, (ListNode) rightOperand);
-                }else if (leftType.equals("list") && rightType.equals("list")) {
-//                    return concatenateLists((ListNode) leftOperand, (ListNode) rightOperand);
                 }
-
+//                if (leftType.equals("dictionary") && rightType.equals("dictionary")) return;
+//                if (leftType.equals("list") && rightType.equals("list")) return;
                 break;
 
             case MINUS:
@@ -399,63 +463,9 @@ class ExpressionNode extends Node {
         }
         throw new RuntimeException("Invalid operand types for operation: " + leftType + " and " + rightType);
     }
-
-    private Node concatenateLists(ListNode list1, ListNode list2) {
-        List<Node> elements1 = list1.getElements().getStatements();
-        List<Node> elements2 = list2.getElements().getStatements();
-
-        List<Node> concatenatedElements = new ArrayList<>(elements1);
-        concatenatedElements.addAll(elements2);
-
-        BlockNode concatenatedBlock = new BlockNode(concatenatedElements, "new_list");
-
-        return new ListNode(concatenatedBlock, list1.getName());
-    }
-
-//    private Node concatenateDictionaries(DictionaryNode dict1, DictionaryNode dict2) {
-//        List<Node> entries1 = dict1.getElements().getStatements();
-//        List<Node> entries2 = dict2.getElements().getStatements();
-//
-//        List<Node> concatenatedEntries = new ArrayList<>(entries1);
-//
-//        for (Node entry : entries2) {
-//            if (entry instanceof DictionaryEntryNode) {
-//                DictionaryEntryNode entryNode = (DictionaryEntryNode) entry;
-//                boolean keyExists = entries1.stream()
-//                        .anyMatch(e -> e instanceof DictionaryEntryNode &&
-//                                ((DictionaryEntryNode) e).getKey().equals(entryNode.getKey()));
-//                if (!keyExists) {
-//                    concatenatedEntries.add(entryNode);
-//                }
-//            }
-//        }
-//
-//        BlockNode concatenatedBlock = new BlockNode();
-//        concatenatedBlock.setStatements(concatenatedEntries);
-//
-//        return new DictionaryNode(concatenatedBlock, dict1.getName());
-//    }
 }
 
-class ComparisonNode extends Node {
-    private final Node leftOperand;
-    private final TokenCode operator;
-    private final Node rightOperand;
 
-    public ComparisonNode(Node leftOperand, TokenCode operator, Node rightOperand) {
-        this.leftOperand = leftOperand;
-        this.operator = operator;
-        this.rightOperand = rightOperand;
-
-        addChild(leftOperand);
-        addChild(rightOperand);
-    }
-
-    @Override
-    public String toString() {
-        return "Comparison: " + operator.toString();
-    }
-}
 
 abstract class DeclarationNode extends Node {
     // Тип декларации: переменная, функция, тип
@@ -470,9 +480,12 @@ abstract class DeclarationNode extends Node {
         return declarationType;
     }
 
-    // Метод для печати узла (должен быть реализован в подклассах)
+
     @Override
     public abstract String toString();
+
+    @Override
+    public abstract void execute(Environment environment);
 }
 
 abstract class StatementNode extends Node {
@@ -500,7 +513,7 @@ class VariableDeclarationNode extends DeclarationNode {
         this.variableName = variableName;
         this.initializer = initializer;
         this.type = type;
-        addChild(initializer); // Добавляем initializer в дочерние узлы
+        addChild(initializer);
     }
 
     public IdentifierNode getName() {
@@ -510,6 +523,9 @@ class VariableDeclarationNode extends DeclarationNode {
     @Override
     public String toString() {
         return "Variable: " + variableName +" | type: " + this.type;
+    }
+    @Override
+    public void execute(Environment environment) {
     }
 }
 
@@ -532,6 +548,10 @@ class IdentifierNode extends Node {
     public String getName() {
         return name;
     }
+
+    @Override
+    public void execute(Environment environment) {
+    }
 }
 
 class BlockNode extends Node {
@@ -542,18 +562,28 @@ class BlockNode extends Node {
         this.name = name;
         this.statements = statements;
         for (Node statement : statements) {
-            addChild(statement); // Добавляем все узлы в дочерние
+            addChild(statement);
         }
     }
     public IdentifierNode getName() {
         return (IdentifierNode) this.statements.get(0);
     }
+
+    public int size() {
+        return statements.size();
+    }
+
+    public Node get(int index) {
+        return statements.get(index);
+    }
+
     @Override
     public String toString() {
         return this.name;
     }
-    public List<Node> getStatements(){
-        return statements;
+
+    @Override
+    public void execute(Environment environment) {
     }
 }
 
@@ -573,6 +603,10 @@ class FunctionDeclarationNode extends DeclarationNode {
         addChild(functionBody); // Добавляем body в дочерние узлы
 
 
+    }
+
+    @Override
+    public void execute(Environment environment) {
     }
 
     public IdentifierNode getName() {
@@ -607,6 +641,10 @@ class IfNode extends StatementNode {
     public String toString() {
         return "If";
     }
+
+    @Override
+    public void execute(Environment environment) {
+    }
 }
 
 
@@ -627,6 +665,10 @@ class WhileLoopNode extends StatementNode {
     @Override
     public String toString() {
         return "While";
+    }
+
+    @Override
+    public void execute(Environment environment) {
     }
 }
 
@@ -653,6 +695,10 @@ class ForLoopNode extends StatementNode {
     public String toString() {
         return "For";
     }
+
+    @Override
+    public void execute(Environment environment) {
+    }
 }
 
 class ReturnNode extends StatementNode {
@@ -669,6 +715,10 @@ class ReturnNode extends StatementNode {
     public String toString() {
         return "Return";
     }
+
+    @Override
+    public void execute(Environment environment) {
+    }
 }
 
 class PrintNode extends StatementNode {
@@ -684,6 +734,10 @@ class PrintNode extends StatementNode {
     @Override
     public String toString() {
         return "Print";
+    }
+
+    @Override
+    public void execute(Environment environment) {
     }
 }
 
@@ -705,15 +759,27 @@ class ListNode extends VariableDeclarationNode {
         return variableName;
     }
 
+    public Node get(int index) {
+        return elements.get(index);
+    }
+
+
+    public int size() {
+        int size = 0;
+
+
+
+        if (elements != null) {
+            size += elements.size();
+        }
+
+        return size;
+    }
+
     @Override
     public String toString() {
         return "List: ";
     }
-
-    public BlockNode getElements() {
-        return elements;
-    }
-
 }
 
 class DictionaryNode extends VariableDeclarationNode {
@@ -758,6 +824,10 @@ class DictionaryEntryNode extends Node {
     public String toString() {
         return "Entry:";
     }
+
+    @Override
+    public void execute(Environment environment) {
+    }
 }
 
 
@@ -789,26 +859,6 @@ class LiteralNode extends ExpressionNode {
     }
 }
 
-class LogicalNode extends Node {
-    private final Node leftOperand;
-    private final TokenCode operator;
-    private final Node rightOperand;
-
-    public LogicalNode(Node leftOperand, TokenCode operator, Node rightOperand) {
-        this.leftOperand = leftOperand;
-        this.operator = operator;
-        this.rightOperand = rightOperand;
-
-        addChild(leftOperand);
-        addChild(rightOperand);
-    }
-
-    @Override
-    public String toString() {
-        return "Logical: " + operator.toString();
-    }
-}
-
 
 class FunctionCall extends Node {
     private final Node funcIdentifier;
@@ -826,24 +876,11 @@ class FunctionCall extends Node {
     public String toString() {
         return "Function call: ";
     }
-}
-
-
-class NotNode extends Node {
-    private final Node operand;
-    public NotNode(Node operand) {
-        this.operand = operand;
-        addChild(operand); // Добавляем операнд в дочерние узлы
-    }
 
     @Override
-    public String toString() {
-        return "Not";
+    public void execute(Environment environment) {
     }
 }
-
-
-
 
 class ParseException extends RuntimeException {
     private final String message;
@@ -973,13 +1010,17 @@ class Parser {
         }
         Identifier variableName = (Identifier) getCurrentToken();
         advance(); // Пропускаем идентификатор
-
+//        System.out.println(this.symbolTable.getSymbol(variableName.identifier + "_" + this.scope) != null);
+//        if (!flagVarDeclare && this.symbolTable.getSymbol(variableName.identifier + "_" + this.scope) != null) {
+//            this.symbolTable.addNumUse(variableName.identifier + "_" + this.scope);
+//        }
         if (getCurrentToken().code == TokenCode.ASSIGN) {
             advance();// Пропускаем ':='
             System.out.println(getCurrentToken().code);
             if (flagVarDeclare && this.symbolTable.getSymbol(variableName.identifier + "_" + this.scope) != null) {
                 throw new ParseException("Line: " + getCurrentToken().span.lineNum + " | The variable named '" + variableName.identifier +  "' has already been declared");
             }
+
 //            if (getCurrentToken().code == TokenCode.LBRACKET) {
 //                BlockNode elem = parseList();
 //                return new ListNode(elem, new IdentifierNode(variableName.identifier));
@@ -999,9 +1040,9 @@ class Parser {
 
             if (getCurrentToken().code == TokenCode.FUNC) {
                 advance(); // Пропускаем 'func'
+                this.symbolTable.addSymbol(variableName.identifier + "_" + this.scope, "function", 0, this.scope, -1, null);
 
                 this.scope = variableName.identifier;
-                this.symbolTable.addSymbol(variableName.identifier + "_" + this.scope, "function", 0, this.scope);
 
                 IdentifierNode init = new IdentifierNode(variableName.identifier);
 //            String functionName = functionToken.identifier;
@@ -1013,16 +1054,16 @@ class Parser {
                 advance(); // Пропускаем '('
 
 
-                List<Node > parameters = new ArrayList<>();
+                List<Node> parameters = new ArrayList<>();
                 if (getCurrentToken().code != TokenCode.RPAREN) {
                     VariableDeclarationNode re = parseParameter();
-                    this.symbolTable.addSymbol(re.variableName.getName() + "_" + this.scope, "param", 0, variableName.identifier);
+                    this.symbolTable.addSymbol(re.variableName.getName() + "_" + this.scope, "param", 0, variableName.identifier, -1, null);
                     parameters.add(re);
 
                     while (getCurrentToken().code == TokenCode.COMMA) {
                         advance(); // Пропускаем запятую
                         re = parseParameter();
-                        this.symbolTable.addSymbol(re.variableName.getName() + "_" + this.scope, "param", 0, variableName.identifier);
+                        this.symbolTable.addSymbol(re.variableName.getName() + "_" + this.scope, "param", 0, variableName.identifier, -1, null);
                         parameters.add(re);
                     }
                 }
@@ -1041,22 +1082,21 @@ class Parser {
                     if (getCurrentToken().code != TokenCode.SEMICOLON) {
                         throw new ParseException("Expected ';', found: " + getCurrentToken());
                     }
-                    List<Node > headerL = new ArrayList<>();
+                    List<Node> headerL = new ArrayList<>();
                     headerL.add(init);
                     headerL.add(param);
                     BlockNode headerBlock = new BlockNode(headerL, "head");
 
-                    List<Node > bodyBlock = new ArrayList<>();
+                    List<Node> bodyBlock = new ArrayList<>();
                     bodyBlock.add(functionBody);
                     BlockNode body = new BlockNode(bodyBlock, "body");
                     advance(); // Пропускаем 'end'
                     FunctionDeclarationNode fincRe = new FunctionDeclarationNode(headerBlock, body);
                     IdentifierNode variableIdentifier = new IdentifierNode(variableName.identifier);
                     if (flagVarDeclare) {
-                        this.symbolTable.addSymbol(variableName.identifier + "_" + this.scope, "var", 0, this.scope);
+                        this.symbolTable.addSymbol(variableName.identifier + "_" + this.scope, "var", 0, this.scope, -1, null);
                     }
-
-                    return new VariableDeclarationNode(variableIdentifier, fincRe, null);
+                    return new VariableDeclarationNode(variableIdentifier, fincRe, "function");
                 } else {
                     throw new ParseException("Expected '>=', found: " + getCurrentToken().code);
                 }
@@ -1074,20 +1114,20 @@ class Parser {
             }
             IdentifierNode variableIdentifier = new IdentifierNode(variableName.identifier);
             if (flagVarDeclare) {
-                this.symbolTable.addSymbol(variableName.identifier + "_" + this.scope, "var", this.len, this.scope);
+                this.symbolTable.addSymbol(variableName.identifier + "_" + this.scope, "var", this.len, this.scope, -1, initializer);
             }
             String type = "expression";
             if (initializer instanceof ListNode) {
                 type = "list";
-            } else if (initializer instanceof DictionaryNode) {
-                type = "dictionary";
             } else if (initializer instanceof LiteralNode) {
                 type = ((LiteralNode) initializer).getType();
+            } else if (initializer instanceof DictionaryNode) {
+                type = "dictionary";
             }
             return new VariableDeclarationNode(variableIdentifier, initializer, type);
         } else {
             IdentifierNode variableIdentifier = new IdentifierNode(variableName.identifier);
-            return new VariableDeclarationNode(variableIdentifier, null, null);
+            return new VariableDeclarationNode(variableIdentifier, null, "empty");
         }
     }
 
@@ -1150,12 +1190,16 @@ class Parser {
         if (getCurrentToken().code == TokenCode.FUNC) {
             advance(); // Пропускаем 'func'
 
-            if (getCurrentToken().code == TokenCode.IDENTIFIER) {
+            if (getCurrentToken().code != TokenCode.IDENTIFIER) {
                 throw new ParseException("Expected function name, found: " + getCurrentToken());
             }
             Identifier functionToken = (Identifier) getCurrentToken();
+            if (this.symbolTable.getSymbol(functionToken.identifier + "_" + this.scope) != null) {
+                throw new ParseException("Line: " + getCurrentToken().span.lineNum + " | The function named '" + functionToken.identifier +  "' has already been declared");
+            }
+            this.symbolTable.addSymbol(functionToken.identifier + "_" + this.scope, "function", 0, "global", -1, null);
             this.scope = functionToken.identifier;
-            this.symbolTable.addSymbol(functionToken.identifier + "_" + this.scope, "function", 0, "global");
+
 
             IdentifierNode init = new IdentifierNode(functionToken.identifier);
 //            String functionName = functionToken.identifier;
@@ -1167,16 +1211,16 @@ class Parser {
             advance(); // Пропускаем '('
 
 
-            List<Node > parameters = new ArrayList<>();
+            List<Node> parameters = new ArrayList<>();
             if (getCurrentToken().code != TokenCode.RPAREN) {
                 VariableDeclarationNode re = parseParameter();
-                this.symbolTable.addSymbol(re.variableName.getName() + "_" + this.scope, "param", 0, functionToken.identifier);
+                this.symbolTable.addSymbol(re.variableName.getName() + "_" + this.scope, "param", 0, functionToken.identifier, -1, null);
                 parameters.add(re);
 
                 while (getCurrentToken().code == TokenCode.COMMA) {
                     advance(); // Пропускаем запятую
                     re = parseParameter();
-                    this.symbolTable.addSymbol(re.variableName.getName() + "_" + this.scope, "param", 0, functionToken.identifier);
+                    this.symbolTable.addSymbol(re.variableName.getName() + "_" + this.scope, "param", 0, functionToken.identifier, -1, null);
                     parameters.add(re);
                 }
             }
@@ -1199,7 +1243,7 @@ class Parser {
                 }
                 advance(); // Пропускаем 'end'
 
-                List<Node > headerL = new ArrayList<>();
+                List<Node> headerL = new ArrayList<>();
                 headerL.add(init);
                 headerL.add(param);
                 BlockNode headerBlock = new BlockNode(headerL, "head");
@@ -1211,12 +1255,12 @@ class Parser {
                 if (getCurrentToken().code != TokenCode.SEMICOLON) {
                     throw new ParseException("Expected ';', found: " + getCurrentToken());
                 }
-                List<Node > headerL = new ArrayList<>();
+                List<Node> headerL = new ArrayList<>();
                 headerL.add(init);
                 headerL.add(param);
                 BlockNode headerBlock = new BlockNode(headerL, "head");
 
-                List<Node > bodyBlock = new ArrayList<>();
+                List<Node> bodyBlock = new ArrayList<>();
                 bodyBlock.add(functionBody);
                 BlockNode body = new BlockNode(bodyBlock, "body");
                 advance(); // Пропускаем 'end'
@@ -1397,6 +1441,9 @@ class Parser {
         if (getCurrentToken().code == TokenCode.SEMICOLON){
             advance();
         }
+        while (getCurrentToken().code != TokenCode.SEMICOLON && getCurrentToken().code != TokenCode.END && getCurrentToken().code != TokenCode.ELSE) {
+            advance();
+        }
         return new ReturnNode(expression);
     }
 
@@ -1404,6 +1451,7 @@ class Parser {
         if (getCurrentToken().code == TokenCode.IDENTIFIER) {
             Identifier identifierToken = (Identifier) getCurrentToken();
             String identifierName = identifierToken.identifier;
+//            if ()
             advance();
 
             return new IdentifierNode(identifierName);
@@ -1535,6 +1583,7 @@ class Parser {
         if (isComparisonOperator(operator)) {
             advance();
             Node rightOperand = parseExpression();
+
 //            System.out.println(((LiteralNode) leftOperand).getValue());
             leftOperand = new ExpressionNode(leftOperand, operator, rightOperand);
         }
@@ -1600,13 +1649,15 @@ class Parser {
                 this.scope = ((IdentifierNode) key).getName();
             }
             Node value = parseExpression(); // Разбираем значение
-            this.symbolTable.addSymbol(((IdentifierNode) key).getName() + "_" + this.scope, "dict_key", 0, this.scope);
+            this.symbolTable.addSymbol(((IdentifierNode) key).getName() + "_" + this.scope, "dict_key", 0, this.scope, 0, null);
             entries.add(new DictionaryEntryNode(key, value)); // Добавляем пару в список
             if (flag) {
                 this.scope = last;
             }
             // Пока есть запятые, продолжаем разбор пар
+            int indexNum = 0;
             while (getCurrentToken().code == TokenCode.COMMA) {
+                indexNum++;
                 advance(); // Пропускаем запятую
                 key = parseIdentifier(); // Разбираем следующий ключ
 
@@ -1624,10 +1675,10 @@ class Parser {
                         this.scope = last;
                     }
                     entries.add(new DictionaryEntryNode(key, value)); // Добавляем следующую пару
-                    this.symbolTable.addSymbol(((IdentifierNode) key).getName() + "_" + this.scope, "dict_key", 0, this.scope);
+                    this.symbolTable.addSymbol(((IdentifierNode) key).getName() + "_" + this.scope, "dict_key", 0, this.scope, indexNum, null);
                 } else if (getCurrentToken().code == TokenCode.COMMA || getCurrentToken().code == TokenCode.RBRACE) {
                     entries.add(new DictionaryEntryNode(key, null)); // Добавляем следующую пару
-                    this.symbolTable.addSymbol(((IdentifierNode) key).getName() + "_" + this.scope, "dict_key", 0, this.scope);
+                    this.symbolTable.addSymbol(((IdentifierNode) key).getName() + "_" + this.scope, "dict_key", 0, this.scope, indexNum, null);
                 } else {
                     throw new ParseException("Expected ':=', found: " + getCurrentToken().code);
                 }
@@ -1783,7 +1834,9 @@ class Parser {
         } else if (getCurrentToken().code == TokenCode.IDENTIFIER) {
             Identifier identifierToken = (Identifier) getCurrentToken();
             if (program.isFunction(new IdentifierNode(identifierToken.identifier)) != null) {
-                List<Node > parameters = new ArrayList<>();
+                List<Node> parameters = new ArrayList<>();
+//                System.out.println(identifierToken.identifier + "_" + this.scope);
+                this.symbolTable.addNumUse(identifierToken.identifier + "_" + this.scope);
                 advance();
                 if (getCurrentToken().code == TokenCode.LPAREN) {
                     advance();
@@ -1812,48 +1865,125 @@ class Parser {
 //            } else if (program.isVariable(new IdentifierNode(identifierToken.identifier)) != null) {
             } else if (this.symbolTable.getSymbolScope(identifierToken.identifier + "_" + this.scope) == scope) {
                 advance();
+                this.symbolTable.addNumUse(identifierToken.identifier + "_" + this.scope);
                 if (getCurrentToken().code == TokenCode.DOT) {
-//                Node elem = parseLogicalExpression();
                     IdentifierNode variableIdentifier = new IdentifierNode(identifierToken.identifier);
-                    advance();
-                    Node initializer = getEntry(variableIdentifier);
-//                    ((IdentifierNode) initializer).getName();
-                    while (getCurrentToken().code == TokenCode.DOT) {
-                        advance();
-                        initializer = getEntry(initializer);
-//                        ((DictionaryEntryNode) initializer).getValue();
+                    advance();  // Переходим к следующему токену
+                    Node initializer = getEntry(variableIdentifier);  // Получаем начальный узел
+
+                    String index = ((IdentifierNode) ((DictionaryEntryNode) initializer).getValue()).getName();
+                    String indexName = null;
+
+                    // Проверка, является ли `index` числовым значением
+                    if (isInteger(index)) {
+                        int listLength = symbolTable.getSymbolLength(identifierToken.identifier + "_" + this.scope);
+                        if (Integer.parseInt(index) < 0 || Integer.parseInt(index) >= listLength) {
+                            throw new ParseException("Index " + index + " out of bounds for list " + identifierToken.identifier);
+                        }
+                        indexName = this.symbolTable.getSymbolByIndex(identifierToken.identifier, Integer.parseInt(index));
+                        indexName = indexName.substring(0, indexName.indexOf('_'));
+                    } else {
+                        // Проверка, существует ли индекс как ключ в текущей области видимости
+                        if (symbolTable.getSymbolScope(index + "_" + identifierToken.identifier) == null) {
+                            throw new ParseException("Dictionary " + this.scope + " does not contain the key " + identifierToken.identifier);
+                        }
+
                     }
+
+                    // Обновляем scope на основе значения indexName или index
+                    String lastScope = this.scope;
+                    this.scope = (indexName != null) ? indexName : index;
+
+                    // Обрабатываем вложенные обращения через .
+                    while (getCurrentToken().code == TokenCode.DOT) {
+                        advance();  // Переходим к следующему токену
+                        initializer = getEntry(initializer);  // Получаем узел для вложенного элемента
+
+                        // Получаем название вложенного ключа
+                        index = ((IdentifierNode) ((DictionaryEntryNode) initializer).getValue()).getName();
+                        indexName = null;
+
+                        if (isInteger(index)) {
+                            if (this.symbolTable.getSymbolByIndex(this.scope, Integer.parseInt(index)) == null) {
+                                throw new ParseException("Index " + index + " out of bounds for list " + this.scope);
+                            }
+                            indexName = this.symbolTable.getSymbolByIndex(this.scope, Integer.parseInt(index));
+                            indexName = indexName.substring(0, indexName.indexOf('_'));
+//                            int listLength = symbolTable.getSymbolLength(this.scope);
+//
+////                            System.out.println(symbolTable.getSymbolNode(this.scope));
+//                            if (Integer.parseInt(index) < 0 || Integer.parseInt(index) >= listLength) {
+//                                throw new ParseException("Index " + index + " out of bounds for list " + indexName + "_" + this.scope);
+//                            }
+                        } else {
+                            // Проверка на существование ключа во вложенном словаре
+                            if (symbolTable.getSymbolScope(index + "_" + this.scope) == null) {
+                                throw new ParseException("Dictionary " + this.scope + " does not contain the key " + index);
+                            }
+                        }
+
+                        // Обновляем область видимости
+                        lastScope = this.scope;
+                        this.scope = (indexName != null) ? indexName : index;
+                    }
+
+                    // Восстанавливаем исходную область видимости
+                    this.scope = lastScope;
                     return initializer;
                 } else if (getCurrentToken().code == TokenCode.LBRACKET) {
-//                Node elem = parseLogicalExpression();
+//                    Node elem = parseLogicalExpression();
+
                     IdentifierNode variableIdentifier = new IdentifierNode(identifierToken.identifier);
                     advance();
                     Node initializer = getEntry(variableIdentifier);
 
-                    int index = ((IdentifierNode) ((DictionaryEntryNode) initializer).getValue()).getValue();
+// Получаем ListNode из таблицы символов
+                    ListNode listNode = (ListNode) this.symbolTable.getSymbolNode(identifierToken.identifier + "_" + this.scope);
 
-                    int listLength = symbolTable.getSymbolLength(identifierToken.identifier + "_" + this.scope);
+// Проверяем, что начальный индекс в допустимых пределах
+                    int index = ((IdentifierNode) ((DictionaryEntryNode) initializer).getValue()).getValue();
+                    int listLength = listNode.size();
                     if (index < 0 || index >= listLength) {
                         throw new ParseException("Index " + index + " out of bounds for list " + identifierToken.identifier);
                     }
-                    if (getCurrentToken().code != TokenCode.RBRACKET) {
-                        throw new ParseException("Expected ']', found: " + getCurrentToken().code);
+
+                    Node selectedNode = listNode.get(index); // Получаем элемент на данном индексе
+
+// Проверка, является ли элемент вложенным списком
+                    if (selectedNode instanceof ListNode) {
+                        listNode = (ListNode) selectedNode; // Обновляем listNode на текущий уровень вложенности
                     }
                     advance();
+// Переход на следующий уровень вложенности, если он есть
                     while (getCurrentToken().code == TokenCode.LBRACKET) {
                         advance();
                         initializer = getEntry(initializer);
-                        if (getCurrentToken().code != TokenCode.RBRACKET) {
-                            throw new ParseException("Expected ']', found: " + getCurrentToken().code);
+                        int nestedIndex = ((IdentifierNode) ((DictionaryEntryNode) initializer).getValue()).getValue();
+
+                        if (!(listNode instanceof ListNode)) {
+                            throw new ParseException("Это не лист");
                         }
-                        int index1 = ((IdentifierNode) initializer).getValue();
-                        int listLength1 = symbolTable.getSymbolLength(identifierToken.identifier);
-                        if (index1 < 0 || index1 >= listLength1) {
-                            throw new ParseException("Index " + index1 + " out of bounds for list " + identifierToken.identifier);
+
+                        // Проверяем, что текущий элемент является списком
+//                        if (!(listNode.get(nestedIndex) instanceof ListNode)) {
+//                            throw new ParseException("Expected a nested list at index " + nestedIndex + " in " + identifierToken.identifier);
+//                        }
+
+//                        listNode = (ListNode) listNode).get(nestedIndex); // Обновляем текущий listNode
+                        int nestedListLength = listNode.size();
+                        if (nestedIndex < 0 || nestedIndex >= nestedListLength) {
+                            throw new ParseException("Index " + nestedIndex + " out of bounds for nested list at " + identifierToken.identifier);
+                        }
+                        if (listNode.get(nestedIndex) instanceof ListNode) {
+                            listNode = (ListNode) listNode.get(nestedIndex); // Обновляем listNode на текущий уровень вложенности
                         }
                         advance();
                     }
+
+
+// Возвращаем финальный элемент, если проверка завершена успешно
                     return initializer;
+
                 }
                 return new IdentifierNode(identifierToken.identifier);
             } else {
@@ -1866,6 +1996,20 @@ class Parser {
 
 //        throw new ParseException("Unexpected token: " + getCurrentToken().code);
     }
+
+
+    public boolean isInteger(String str) {
+        if (str == null) {
+            return false;
+        }
+        try {
+            Integer.parseInt(str);
+            return true;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
 
     private Node getEntry(Node variableIdentifier) {
         IdentifierNode key = null;
@@ -2113,9 +2257,11 @@ class StringToken extends Token {
     }
 }
 
+
+
 class Optimizer {
     public static boolean flag;
-    private SymbolTable symbolTable; // Будем использовать символьную таблицу для проверки использования переменных
+    private SymbolTable symbolTable;
 
     public Optimizer(SymbolTable symbolTable) {
         this.symbolTable = symbolTable;
@@ -2126,7 +2272,9 @@ class Optimizer {
         do {
             flag = false;
             simplifyConstantExpressions(ast);
-//            removeUnusedVariables(ast);
+
+            removeUnusedVariables(ast);
+
         } while (flag);
 //        ast = removeUnusedVariables(ast);
         return ast;
@@ -2146,12 +2294,11 @@ class Optimizer {
             Node child = node.getChildren().get(i);
             if (child != null) {
                 Node optimizedChild = simplifyConstantExpressions(child);
-
                 if (optimizedChild instanceof ExpressionNode exprNode && exprNode.isConstant()) {
-                    // Заменяем выражение его вычисленным значением
+
                     node.getChildren().set(i, exprNode.evaluate());
                 } else {
-                    // Если не константа, обновляем дочерний узел
+
                     node.getChildren().set(i, optimizedChild);
                 }
                 updateOperands(node);
@@ -2160,10 +2307,51 @@ class Optimizer {
         return node;
     }
 
-
     private Node removeUnusedVariables(Node node) {
-        // Реализация удаления неиспользуемых переменных
-        // Проходим по узлам и проверяем, есть ли переменные, не используемые нигде в дереве
+
+        Set<String> usedVariables = new HashSet<>();
+        markUsedVariables(node, usedVariables);
+
+
+        return pruneUnusedVariables(node, usedVariables);
+    }
+
+    private void markUsedVariables(Node node, Set<String> usedVariables) {
+        if (node == null) return;
+
+
+        if (node instanceof IdentifierNode identifierNode) {
+            usedVariables.add(identifierNode.getName());
+        }
+
+    }
+
+    private Node pruneUnusedVariables(Node node, Set<String> usedVariables) {
+        if (node == null) return null;
+
+
+        try {
+            if (node instanceof VariableDeclarationNode declarationNode) {
+                String variableName = declarationNode.getName().getName();
+                if (this.symbolTable.getSymbolUseNum(variableName + "_global") <= 0) {
+                    return null;
+                }
+            }
+        } catch (NullPointerException e) {
+            System.out.println();
+        }
+
+
+
+        List<Node> children = new ArrayList<>();
+        for (Node child : node.getChildren()) {
+            Node prunedChild = pruneUnusedVariables(child, usedVariables);
+            if (prunedChild != null) {
+                children.add(prunedChild);
+            }
+        }
+
+        node.children = children;
         return node;
     }
 }
@@ -2572,15 +2760,15 @@ class Lexer {
     public static void printTree(Node node, int depth) {
         if (node == null) return;
 
-        // Добавляем отступы
+
         for (int i = 0; i < depth; i++) {
-            System.out.print("  "); // 2 пробела для каждого уровня
+            System.out.print("  ");
         }
 
-        // Выводим информацию о текущем узле (можно заменить на нужный формат)
+
         System.out.println(node.getClass().getSimpleName());
 
-        // Рекурсивно выводим дочерние узлы
+
         for (Node child : node.getChildren()) {
             printTree(child, depth + 1);
         }
@@ -2589,8 +2777,8 @@ class Lexer {
     public static void main(String[] args) {
         // Путь к файлу
 
-        for (int i = 0; i <= 0; i++) {
-            String filePath = "test/test" + i + ".d";
+        for (int i = 0; i <= 7; i++) {
+            String filePath = "src/test" + i + ".d";
 
             System.out.println();
             System.out.println();
@@ -2599,30 +2787,27 @@ class Lexer {
             System.out.println();
 
             try {
-                // Чтение содержимого файла в строку
                 String str = new String(Files.readAllBytes(Paths.get(filePath)));
 
-                // Передача строки в конструктор Lexer
+
                 Lexer lexer = new Lexer(str);
                 List<Token> tokenList = lexer.start();
                 System.out.println();
                 System.out.println();
                 System.out.println();
-                Parser parser = new Parser(tokenList); // Предположим, что у тебя есть класс Parser
-                Node ast = parser.parseProgram();
+                Parser parser = new Parser(tokenList);
+                System.out.println(123);
+                ProgramNode ast = parser.parseProgram();
+
                 SymbolTable symbolTable = parser.getSymbolTable();
                 Optimizer optimizer = new Optimizer(symbolTable);
-                ast = optimizer.optimize(ast);
+                optimizer.optimize(ast);
                 System.out.println(ast);// Метод для парсинга
                 ast.printTree("", true);
-//                printTree(ast);
-//                System.out.println(ast.toString(5)); // Вывод AST
-
-
-                // Ваши действия с объектом Lexer
+                Interpreter interpreter = new Interpreter();
+                interpreter.interpret(ast);
 
             } catch (IOException e) {
-                // Обработка ошибки, если файл не найден или произошла ошибка ввода/вывода
                 System.out.println("Ошибка чтения файла: " + e.getMessage());
             }
         }
