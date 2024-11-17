@@ -1,3 +1,4 @@
+import java.io.Console;
 import java.util.*;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -260,8 +261,9 @@ class ProgramNode extends Node {
 }
 class Interpreter {
     private Environment environment;
-    public Interpreter() {
-        environment = new Environment();
+
+    public Interpreter(Environment initEnvironment) {
+        environment = initEnvironment;
     }
 
     // Метод interpret, который принимает корневой узел программы
@@ -287,7 +289,10 @@ class ExpressionNode extends Node {
     }
 
     public boolean isConstant() {
-        return leftOperand.isConstant() && rightOperand.isConstant();
+        if (!operator.equals(TokenCode.NOT)) {
+            return leftOperand.isConstant() && rightOperand.isConstant();
+        }
+        return false;
     }
 
     @Override
@@ -300,6 +305,27 @@ class ExpressionNode extends Node {
 
     @Override
     public void execute(Environment environment) {
+        executeExpressions(environment);
+    }
+    public Node executeExpressions(Environment environment) {
+        Node rightEvaluated = rightOperand instanceof ExpressionNode
+                ? ((ExpressionNode) rightOperand).executeExpressions(environment)
+                : resolveValue(rightOperand, environment, "global");
+        Node leftEvaluated =  null;
+        if (operator != TokenCode.NOT) {
+            leftEvaluated = leftOperand instanceof ExpressionNode
+                    ? ((ExpressionNode) leftOperand).executeExpressions(environment)
+                    : resolveValue(leftOperand, environment, "global");
+        }
+        if (rightEvaluated instanceof LiteralNode &&
+                (leftEvaluated == null || leftEvaluated instanceof LiteralNode)) {
+            // Выполняем проверку типов и вычисление результата
+            Node result = checkTypesExecute(leftEvaluated, rightEvaluated);
+            // Устанавливаем флаг оптимизации
+            Optimizer.flag = true;
+            return result;
+        }
+        return this;
     }
 
     public Node getLeftOp() {
@@ -329,11 +355,171 @@ class ExpressionNode extends Node {
             Optimizer.flag = true;
             return result;
         }
-
         return this;
     }
 
     public Node checkTypes() {
+        String leftType = ((LiteralNode) leftOperand).getType();
+        String rightType = ((LiteralNode) rightOperand).getType();
+
+        switch (operator) {
+            case PLUS:
+                if (leftType.equals("int") && rightType.equals("int")) {
+                    int result = Integer.parseInt(((LiteralNode) leftOperand).getValue().toString()) + Integer.parseInt(((LiteralNode) rightOperand).getValue().toString());
+                    return new LiteralNode((Object) result, "int");
+                } else if ((leftType.equals("int") && rightType.equals("real")) ||
+                        (leftType.equals("real") && rightType.equals("int")) ||
+                        (leftType.equals("real") && rightType.equals("real"))) {
+                    double result = Double.parseDouble(((LiteralNode) leftOperand).getValue().toString()) + Double.parseDouble(((LiteralNode) rightOperand).getValue().toString());
+                    return new LiteralNode((Object) result, "real");
+                } else if (leftType.equals("string") && rightType.equals("string")) {
+                    String result = ((LiteralNode) leftOperand).getValue().toString() + ((LiteralNode) rightOperand).getValue().toString();
+                    return new LiteralNode((Object) result, "string");
+                }
+//                if (leftType.equals("dictionary") && rightType.equals("dictionary")) return;
+//                if (leftType.equals("list") && rightType.equals("list")) return;
+                break;
+
+            case MINUS:
+                if (leftType.equals("int") && rightType.equals("int")) {
+                    int result = Integer.parseInt(((LiteralNode) leftOperand).getValue().toString()) - Integer.parseInt(((LiteralNode) rightOperand).getValue().toString());
+                    return new LiteralNode((Object) result, "int");
+                } else if ((leftType.equals("int") && rightType.equals("real")) ||
+                        (leftType.equals("real") && rightType.equals("int")) ||
+                        (leftType.equals("real") && rightType.equals("real"))) {
+                    double result = Double.parseDouble(((LiteralNode) leftOperand).getValue().toString()) - Double.parseDouble(((LiteralNode) rightOperand).getValue().toString());
+                    return new LiteralNode((Object) result, "real");
+                }
+                break;
+            case MULTIPLY:
+                if (leftType.equals("int") && rightType.equals("int")) {
+                    int result = Integer.parseInt(((LiteralNode) leftOperand).getValue().toString()) * Integer.parseInt(((LiteralNode) rightOperand).getValue().toString());
+                    return new LiteralNode((Object) result, "int");
+                } else if ((leftType.equals("int") && rightType.equals("real")) ||
+                        (leftType.equals("real") && rightType.equals("int")) ||
+                        (leftType.equals("real") && rightType.equals("real"))) {
+                    double result = Double.parseDouble(((LiteralNode) leftOperand).getValue().toString()) * Double.parseDouble(((LiteralNode) rightOperand).getValue().toString());
+                    return new LiteralNode((Object) result, "real");
+                }
+                break;
+            case DIVIDE:
+                if (leftType.equals("int") && rightType.equals("int")) {
+                    int result = Integer.parseInt(((LiteralNode) leftOperand).getValue().toString()) / Integer.parseInt(((LiteralNode) rightOperand).getValue().toString());
+                    return new LiteralNode((Object) result, "int");
+                } else if ((leftType.equals("int") && rightType.equals("real")) ||
+                        (leftType.equals("real") && rightType.equals("int")) ||
+                        (leftType.equals("real") && rightType.equals("real"))) {
+                    double result = Double.parseDouble(((LiteralNode) leftOperand).getValue().toString()) / Double.parseDouble(((LiteralNode) rightOperand).getValue().toString());
+                    return new LiteralNode((Object) result, "real");
+                }
+                break;
+
+            case LESS:
+            case GREATER:
+            case LESS_EQUAL:
+            case GREATER_EQUAL:
+            case EQUAL:
+            case NOT_EQUAL:
+                if ((leftType.equals("int") || leftType.equals("real")) &&
+                        (rightType.equals("int") || rightType.equals("real"))) {
+                    boolean result;
+                    double leftValue = Double.parseDouble(((LiteralNode) leftOperand).getValue().toString());
+                    double rightValue = Double.parseDouble(((LiteralNode) rightOperand).getValue().toString());
+                    switch (operator) {
+                        case LESS:
+                            result = leftValue < rightValue;
+                            break;
+                        case GREATER:
+                            result = leftValue > rightValue;
+                            break;
+                        case LESS_EQUAL:
+                            result = leftValue <= rightValue;
+                            break;
+                        case GREATER_EQUAL:
+                            result = leftValue >= rightValue;
+                            break;
+                        case EQUAL:
+                            result = leftValue == rightValue;
+                            break;
+                        case NOT_EQUAL:
+                            result = leftValue != rightValue;
+                            break;
+                        default:
+                            throw new ParseException("Invalid comparison operation.");
+                    }
+                    return new LiteralNode((Object) result, "boolean");
+                }
+                break;
+            case AND:
+            case OR:
+            case XOR:
+                if (leftType.equals("boolean") && rightType.equals("boolean")) {
+                    boolean leftValue = Boolean.parseBoolean(((LiteralNode) leftOperand).getValue().toString());
+                    boolean rightValue = Boolean.parseBoolean(((LiteralNode) rightOperand).getValue().toString());
+                    boolean result;
+
+                    switch (operator) {
+                        case AND:
+                            result = leftValue && rightValue;
+                            break;
+                        case OR:
+                            result = leftValue || rightValue;
+                            break;
+                        case XOR:
+                            result = leftValue ^ rightValue;
+                            break;
+                        default:
+                            throw new ParseException("Unsupported operation: " + operator);
+                    }
+                    return new LiteralNode((Object) result, "boolean");
+                }
+                break;
+
+            case NOT:
+                if (rightType.equals("boolean")) {
+                    boolean rightValue = Boolean.parseBoolean(((LiteralNode) rightOperand).getValue().toString());
+                    boolean result = !rightValue;
+                    return new LiteralNode((Object) result, "boolean");
+                }
+                break;
+
+            default:
+                throw new RuntimeException("Unsupported operation for types: " + leftType + " and " + rightType);
+        }
+        throw new RuntimeException("Invalid operand types for operation: " + leftType + " and " + rightType);
+    }
+
+    private Node resolveValue(Node node, Environment environment, String scopeType) {
+        if (node instanceof LiteralNode) {
+            // Если узел — литерал, возвращаем его как есть
+            return node;
+        } else if (node instanceof IdentifierNode) {
+            // Если узел — переменная, извлекаем значение из окружения
+            String varName = ((IdentifierNode) node).getName();
+            Object value = environment.getVariable(varName, scopeType).getValue();
+            if (value == null) {
+                throw new RuntimeException("Variable '" + varName + "' is not defined in the current scope.");
+            }
+            String type = determineType(environment.getVariable(varName, "global").getValue());
+            return new LiteralNode(value, type);
+        }
+        throw new RuntimeException("Unsupported node type: " + node.getClass());
+    }
+    private String determineType(Object value) {
+        if (value instanceof Integer) {
+            return "int";
+        } else if (value instanceof Double || value instanceof Float) {
+            return "real";
+        } else if (value instanceof Boolean) {
+            return "boolean";
+        } else if (value instanceof String) {
+            return "string";
+        }
+        throw new RuntimeException("Unsupported value type: " + value.getClass());
+    }
+
+
+    public Node checkTypesExecute(Node leftOperand, Node rightOperand) {
         String leftType = ((LiteralNode) leftOperand).getType();
         String rightType = ((LiteralNode) rightOperand).getType();
 
@@ -526,6 +712,14 @@ class VariableDeclarationNode extends DeclarationNode {
     }
     @Override
     public void execute(Environment environment) {
+        if (this.initializer instanceof LiteralNode) {
+            environment.addVariable(this.variableName.getName(), ((LiteralNode) this.initializer).getValue(), "global");
+        } else if (this.initializer instanceof ListNode) {
+            environment.addVariable(this.variableName.getName(), ((ListNode) this.initializer).toValueList(), "global");
+        } else if (this.initializer instanceof ExpressionNode) {
+            environment.addVariable(this.variableName.getName(), ((LiteralNode) ((ExpressionNode) this.initializer).executeExpressions(environment)).getValue(), "global");
+        }
+        System.out.println(environment.getVariable(this.variableName.getName(), "global"));
     }
 }
 
@@ -748,7 +942,6 @@ class ListNode extends VariableDeclarationNode {
 
     public ListNode(BlockNode elements, IdentifierNode name) {
         super(name, null, null);
-        System.out.println(1233);
         this.elements = elements;
         this.name = name;
         addChild(name); // Добавляем все элементы в дочерние
@@ -766,19 +959,35 @@ class ListNode extends VariableDeclarationNode {
 
     public int size() {
         int size = 0;
-
-
-
         if (elements != null) {
             size += elements.size();
         }
-
         return size;
     }
 
     @Override
     public String toString() {
         return "List: ";
+    }
+
+    public List<Object> toValueList() {
+        List<Object> valueList = new ArrayList<>();
+        if (elements != null) {
+            for (int i = 0; i < elements.size(); i++) {
+                if (elements.get(i) instanceof LiteralNode) {
+                    LiteralNode element = (LiteralNode) elements.get(i);
+                    valueList.add(element.getValue());
+                } else if(elements.get(i) instanceof ListNode) {
+                    valueList.add(((ListNode) elements.get(i)).toValueList());
+                }
+            }
+        }
+        return valueList;
+    }
+
+    @Override
+    public void execute(Environment environment) {
+
     }
 }
 
@@ -832,12 +1041,12 @@ class DictionaryEntryNode extends Node {
 
 
 
-class LiteralNode extends ExpressionNode {
+class LiteralNode extends Node {
     private final Object value;
     private String type;
 
     public LiteralNode(Object value, String type) {
-        super(null, null, null);
+//        super(null, null, null);
         this.value = value;
         this.type = type;
     }
@@ -856,6 +1065,9 @@ class LiteralNode extends ExpressionNode {
     }
     public boolean isConstant() {
         return true; // Литералы всегда являются константами
+    }
+    @Override
+    public void execute(Environment environment) {
     }
 }
 
@@ -948,6 +1160,7 @@ class Parser {
     public ProgramNode parseProgram() {
         while (current < tokens.size()) {
             this.scope = "global";
+            System.out.println(getCurrentToken().code);
             if (getCurrentToken().code == TokenCode.VAR) {
                 program.addStatement(parseDeclaration());
             } else if (getCurrentToken().code == TokenCode.IDENTIFIER) {
@@ -1570,7 +1783,6 @@ class Parser {
             advance(); // Пропускаем ')'
             return innerComparison;
         }
-
         Node leftOperand = parseExpression();
 
         TokenCode operator = getCurrentToken().code;
@@ -2121,6 +2333,103 @@ class Parser {
     }
 }
 
+
+class Variable {
+    private String name;
+    private Object value;
+    private String scope;
+
+    public Variable(String name, Object value, String scope) {
+        this.name = name;
+        this.value = value;
+        this.scope = scope;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public Object getValue() {
+        return value;
+    }
+
+    public void setValue(Object value) {
+        this.value = value;
+    }
+
+    public String getScope() {
+        return scope;
+    }
+
+    @Override
+    public String toString() {
+        return "Variable{name='" + name + "', value=" + value + ", scope='" + scope + "'}";
+    }
+}
+
+class Environment {
+    private String name;
+    private String scopeType;
+    private Map<String, Map<String, Variable>> scopedVariables;
+
+    public Environment(String name, String scopeType) {
+        this.name = name;
+        this.scopeType = scopeType;
+        this.scopedVariables = new HashMap<>();
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public String getScopeType() {
+        return scopeType;
+    }
+
+    public void addVariable(String name, Object value, String scopeType) {
+        scopedVariables.putIfAbsent(scopeType, new HashMap<>());
+        Map<String, Variable> scopeVars = scopedVariables.get(scopeType);
+        if (scopeVars.containsKey(name)) {
+            throw new RuntimeException("Переменная " + name + " уже существует в области " + scopeType + ".");
+        }
+        scopeVars.put(name, new Variable(name, value, scopeType));
+    }
+
+    public void updateVariable(String name, Object value, String scopeType) {
+        Map<String, Variable> scopeVars = scopedVariables.get(scopeType);
+        if (scopeVars == null || !scopeVars.containsKey(name)) {
+            throw new RuntimeException("Переменная " + name + " не найдена в области " + scopeType + ".");
+        }
+        scopeVars.get(name).setValue(value);
+    }
+
+    public Variable getVariable(String name, String scopeType) {
+        Map<String, Variable> scopeVars = scopedVariables.get(scopeType);
+        if (scopeVars == null || !scopeVars.containsKey(name)) {
+            throw new RuntimeException("Переменная " + name + " не найдена в области " + scopeType + ".");
+        }
+        return scopeVars.get(name);
+    }
+
+    private String determineType(Object value) {
+        if (value instanceof Integer) {
+            return "int";
+        } else if (value instanceof Double || value instanceof Float) {
+            return "real";
+        } else if (value instanceof Boolean) {
+            return "boolean";
+        } else if (value instanceof String) {
+            return "string";
+        }
+        throw new RuntimeException("Unsupported value type: " + value.getClass());
+    }
+
+    public Map<String, Variable> getVariablesInScope(String scopeType) {
+        return scopedVariables.getOrDefault(scopeType, new HashMap<>());
+    }
+}
+
+
 class LexerException extends RuntimeException {
     public LexerException(String message) {
         super(message);
@@ -2295,7 +2604,6 @@ class Optimizer {
             if (child != null) {
                 Node optimizedChild = simplifyConstantExpressions(child);
                 if (optimizedChild instanceof ExpressionNode exprNode && exprNode.isConstant()) {
-
                     node.getChildren().set(i, exprNode.evaluate());
                 } else {
 
@@ -2777,8 +3085,8 @@ class Lexer {
     public static void main(String[] args) {
         // Путь к файлу
 
-        for (int i = 0; i <= 7; i++) {
-            String filePath = "src/test" + i + ".d";
+        for (int i = 0; i <= 0; i++) {
+            String filePath = "test/test" + i + ".d";
 
             System.out.println();
             System.out.println();
@@ -2802,9 +3110,12 @@ class Lexer {
                 SymbolTable symbolTable = parser.getSymbolTable();
                 Optimizer optimizer = new Optimizer(symbolTable);
                 optimizer.optimize(ast);
-                System.out.println(ast);// Метод для парсинга
-                ast.printTree("", true);
-                Interpreter interpreter = new Interpreter();
+                System.out.println(ast);
+                ast.printTree("", true);// Метод для парсинга
+
+
+                Environment init = new Environment("global", "global");
+                Interpreter interpreter = new Interpreter(init);
                 interpreter.interpret(ast);
 
             } catch (IOException e) {
