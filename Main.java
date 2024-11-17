@@ -1,4 +1,3 @@
-import java.io.Console;
 import java.util.*;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -520,7 +519,10 @@ class ExpressionNode extends Node {
 
 
     public Node checkTypesExecute(Node leftOperand, Node rightOperand) {
-        String leftType = ((LiteralNode) leftOperand).getType();
+        String leftType = null;
+        if (leftOperand != null) {
+            leftType = ((LiteralNode) leftOperand).getType();
+        }
         String rightType = ((LiteralNode) rightOperand).getType();
 
         switch (operator) {
