@@ -43,6 +43,10 @@ class SymbolTable {
         table.put(name, symbol);
     }
 
+    public void deleteSymbol(String name) {
+        table.remove(name);
+    }
+
     public void addNumUse(String name) {
         table.get(name).numUse += 1;
         System.out.println(table.get(name).numUse);
@@ -719,13 +723,12 @@ class VariableDeclarationNode extends DeclarationNode {
             environment.addVariable(this.variableName.getName(), ((LiteralNode) this.initializer).getValue(), "global");
         } else if (this.initializer instanceof ListNode) {
             environment.addVariable(this.variableName.getName(), ((ListNode) this.initializer).toValueList(), "global");
-
         } else if (this.initializer instanceof ExpressionNode) {
             environment.addVariable(this.variableName.getName(), ((LiteralNode) ((ExpressionNode) this.initializer).executeExpressions(environment)).getValue(), "global");
-        }
-       
         } else if (this.initializer instanceof DictionaryNode) {
             environment.addVariable(this.variableName.getName(), ((DictionaryNode) this.initializer).toValueDictionary(), "global");
+        } else if (this.initializer instanceof IdentifierNode) {
+            environment.addVariable(this.variableName.getName(), environment.getVariable(((IdentifierNode) this.initializer).getName(), "global").getValue(), "global");
         }
         System.out.println(environment.getVariable(this.variableName.getName(), "global"));
     }
@@ -902,6 +905,35 @@ class ForLoopNode extends StatementNode {
 
     @Override
     public void execute(Environment environment) {
+        if (this.end != null) {
+            if (this.start.getChildren().get(0) instanceof LiteralNode && this.end.getChildren().get(0) instanceof LiteralNode) {
+                if (((LiteralNode) this.start.getChildren().get(0)).getValue() instanceof Integer &&
+                        ((LiteralNode) this.end.getChildren().get(0)).getValue() instanceof Integer) {
+                    environment.addVariable(this.name, (int) ((LiteralNode) this.start.getChildren().get(0)).getValue(), "global");
+                    for (int i = (int) ((LiteralNode) this.start.getChildren().get(0)).getValue(); i < (int) ((LiteralNode) this.end.getChildren().get(0)).getValue(); i++) {
+                        environment.updateVariable(this.name, i, "global");
+                        for (int j = 0; j < this.body.getChildren().size(); j++) {
+                            this.body.getChildren().get(j).execute(environment);
+                        }
+                    }
+                }
+            }
+        } else {
+//            System.out.println();
+            if (environment.getVariable(((IdentifierNode) this.start.getChildren().get(0)).getName(), "global").getValue() instanceof List<?>) {
+                List<Object> array = (List<Object>) environment.getVariable(((IdentifierNode) this.start.getChildren().get(0)).getName(), "global").getValue();
+                environment.addVariable(this.name, null, "global");
+                System.out.println("------------");
+                System.out.println(this.name);
+                System.out.println("------------");
+                for (int i = 0; i < array.size(); i++) {
+                    environment.updateVariable(this.name, array.get(i), "global");
+                    for (int j = 0; j < this.body.getChildren().size(); j++) {
+                        this.body.getChildren().get(j).execute(environment);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -943,15 +975,18 @@ class PrintNode extends StatementNode {
     @Override
     public void execute(Environment environment) {
         for (int i = 0; i < this.expression.getChildren().size(); i++) {
-            if (this.expression.getChildren().get(i) instanceof DictionaryEntryCall) {
-                DictionaryEntryCall element = (DictionaryEntryCall) this.expression.getChildren().get(i);
-                if (element.getKey() instanceof DictionaryEntryCall) {
-                    element.getKey().execute(environment);
-                }
-                System.out.println();
-                System.out.println(((LinkedHashMap<Object, Object>) environment.getVariable(((IdentifierNode) element.getKey()).getName(), "global").getValue()).get(((IdentifierNode) element.getValue()).getName()));
-                System.out.println();
+            Object element = this.expression.getChildren().get(i);
+            if (element instanceof IdentifierNode) {
+                System.out.println(environment.getVariable(((IdentifierNode) element).getName(), "global").getValue());
+            } else if (element instanceof LiteralNode) {
+                System.out.println(((LiteralNode) element).getValue());
+            }  else if (element instanceof ExpressionNode) {
+//                System.out.println(element);
+                System.out.println(((LiteralNode) ((ExpressionNode) element).executeExpressions(environment)).getValue());
+            } else if (element instanceof DictionaryEntryCall) {
+                System.out.println(((DictionaryEntryCall) element).getValueIndex(environment));
             }
+
         }
 //        System.out.println(this.expression.getChildren().get(0) instanceof DictionaryEntryNode);
     }
@@ -1130,6 +1165,31 @@ class DictionaryEntryCall extends Node {
     public Object calcEntryValue(Environment environment) {
         LinkedHashMap<Object, Object> dict = (LinkedHashMap<Object, Object>) environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue();
         return null;
+    }
+
+    public boolean canConvertToInt(String str) {
+        if (str == null || str.isEmpty()) {
+            return false; // Нельзя преобразовать null или пустую строку
+        }
+        try {
+            Integer.parseInt(str);
+            return true; // Успешно преобразовали
+        } catch (NumberFormatException e) {
+            return false; // Не удалось преобразовать
+        }
+    }
+
+    public Object getValueIndex(Environment environment) {
+        if (environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue() instanceof List<?>) {
+            if (canConvertToInt(((IdentifierNode) this.value).getName())) {
+                return ((List<?>) environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue()).get(Integer.parseInt(((IdentifierNode) this.value).getName()));
+            } else {
+                if (environment.getVariable(((IdentifierNode) this.value).getName(), "global").getValue() instanceof Integer) {
+                    return ((List<?>) environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue()).get((int) environment.getVariable(((IdentifierNode) this.value).getName(), "global").getValue());
+                }
+            }
+        }
+        throw new ParseException("Bad type in index.");
     }
 
     @Override
@@ -1445,6 +1505,7 @@ class Parser {
     private ForLoopNode parseFor() {
         advance(); // Пропускаем 'for'
         Identifier variableName = (Identifier) getCurrentToken();
+        this.symbolTable.addSymbol(variableName.identifier + "_" + this.scope, "var", 0, this.scope, -1, null);
         advance(); // Пропускаем идентификатор
 
         if (getCurrentToken().code == TokenCode.IN) {
@@ -1471,8 +1532,10 @@ class Parser {
 //                    Node body = parseStatement();
                     BlockNode body = new BlockNode(bodyArr, "Body");
                     advance();
+//                    this.symbolTable.deleteSymbol(variableName.identifier + "_" + this.scope);
                     return new ForLoopNode(variableName.identifier, rangeStart, rangeEnd, body);
                 }
+//                this.symbolTable.deleteSymbol(variableName.identifier + "_" + this.scope);
                 throw new ParseException("Expected 'loop', found: " + getCurrentToken());
             } else if (getCurrentToken().code == TokenCode.LOOP) {
                 List<Node> bodyArr = new ArrayList<>();
@@ -1489,10 +1552,13 @@ class Parser {
 
 //                Node body = parseStatement();
                 advance();
+//                this.symbolTable.deleteSymbol(variableName.identifier + "_" + this.scope);
                 return new ForLoopNode(variableName.identifier, rangeStart, null, body);
             }
+//            this.symbolTable.deleteSymbol(variableName.identifier + "_" + this.scope);
             throw new ParseException("Expected 'to', found: " + getCurrentToken());
         }
+//        this.symbolTable.deleteSymbol(variableName.identifier + "_" + this.scope);
         throw new ParseException("Expected 'in', found: " + getCurrentToken());
     }
 
@@ -2272,7 +2338,6 @@ class Parser {
                     return initializer;
                 } else if (getCurrentToken().code == TokenCode.LBRACKET) {
 //                    Node elem = parseLogicalExpression();
-
                     IdentifierNode variableIdentifier = new IdentifierNode(identifierToken.identifier);
                     advance();
                     Node initializer = getEntry(variableIdentifier);
@@ -2281,46 +2346,53 @@ class Parser {
                     ListNode listNode = (ListNode) this.symbolTable.getSymbolNode(identifierToken.identifier + "_" + this.scope);
 
 // Проверяем, что начальный индекс в допустимых пределах
-                    int index = ((IdentifierNode) ((DictionaryEntryCall) initializer).getValue()).getValue();
-                    int listLength = listNode.size();
-                    if (index < 0 || index >= listLength) {
-                        throw new ParseException("Index " + index + " out of bounds for list " + identifierToken.identifier);
-                    }
 
-                    Node selectedNode = listNode.get(index); // Получаем элемент на данном индексе
-
-// Проверка, является ли элемент вложенным списком
-                    if (selectedNode instanceof ListNode) {
-                        listNode = (ListNode) selectedNode; // Обновляем listNode на текущий уровень вложенности
-                    }
-                    advance();
-// Переход на следующий уровень вложенности, если он есть
-                    while (getCurrentToken().code == TokenCode.LBRACKET) {
-                        advance();
-                        initializer = getEntry(initializer);
-                        int nestedIndex = ((IdentifierNode) ((DictionaryEntryCall) initializer).getValue()).getValue();
-
-                        if (!(listNode instanceof ListNode)) {
-                            throw new ParseException("Это не лист");
+                    if (canConvertToInt(String.valueOf((IdentifierNode) ((DictionaryEntryCall) initializer).getValue()))) {
+                        int index = ((IdentifierNode) ((DictionaryEntryCall) initializer).getValue()).getValue();
+                        System.out.println("----------------");
+                        System.out.println(index);
+                        System.out.println("----------------");
+                        int listLength = listNode.size();
+                        if (index < 0 || index >= listLength) {
+                            throw new ParseException("Index " + index + " out of bounds for list " + identifierToken.identifier);
                         }
 
-                        // Проверяем, что текущий элемент является списком
+                        Node selectedNode = listNode.get(index); // Получаем элемент на данном индексе
+
+// Проверка, является ли элемент вложенным списком
+                        if (selectedNode instanceof ListNode) {
+                            listNode = (ListNode) selectedNode; // Обновляем listNode на текущий уровень вложенности
+                        }
+                        advance();
+// Переход на следующий уровень вложенности, если он есть
+                        while (getCurrentToken().code == TokenCode.LBRACKET) {
+                            advance();
+                            initializer = getEntry(initializer);
+                            int nestedIndex = ((IdentifierNode) ((DictionaryEntryCall) initializer).getValue()).getValue();
+
+                            if (!(listNode instanceof ListNode)) {
+                                throw new ParseException("Это не лист");
+                            }
+
+                            // Проверяем, что текущий элемент является списком
 //                        if (!(listNode.get(nestedIndex) instanceof ListNode)) {
 //                            throw new ParseException("Expected a nested list at index " + nestedIndex + " in " + identifierToken.identifier);
 //                        }
 
 //                        listNode = (ListNode) listNode).get(nestedIndex); // Обновляем текущий listNode
-                        int nestedListLength = listNode.size();
-                        if (nestedIndex < 0 || nestedIndex >= nestedListLength) {
-                            throw new ParseException("Index " + nestedIndex + " out of bounds for nested list at " + identifierToken.identifier);
+                            int nestedListLength = listNode.size();
+                            if (nestedIndex < 0 || nestedIndex >= nestedListLength) {
+                                throw new ParseException("Index " + nestedIndex + " out of bounds for nested list at " + identifierToken.identifier);
+                            }
+                            if (listNode.get(nestedIndex) instanceof ListNode) {
+                                listNode = (ListNode) listNode.get(nestedIndex); // Обновляем listNode на текущий уровень вложенности
+                            }
+                            advance();
                         }
-                        if (listNode.get(nestedIndex) instanceof ListNode) {
-                            listNode = (ListNode) listNode.get(nestedIndex); // Обновляем listNode на текущий уровень вложенности
-                        }
+
+                    } else {
                         advance();
                     }
-
-
 // Возвращаем финальный элемент, если проверка завершена успешно
                     return initializer;
 
@@ -2335,6 +2407,18 @@ class Parser {
 
 
 //        throw new ParseException("Unexpected token: " + getCurrentToken().code);
+    }
+
+    public boolean canConvertToInt(String str) {
+        if (str == null || str.isEmpty()) {
+            return false; // Нельзя преобразовать null или пустую строку
+        }
+        try {
+            Integer.parseInt(str);
+            return true; // Успешно преобразовали
+        } catch (NumberFormatException e) {
+            return false; // Не удалось преобразовать
+        }
     }
 
 
@@ -2439,6 +2523,8 @@ class Parser {
             return parsePrint();
         } else if (getCurrentToken().code == TokenCode.VAR) {
             return parseDeclaration();
+        } else if (getCurrentToken().code == TokenCode.IDENTIFIER) {
+            return parseDeclaration();
         } else if (getCurrentToken().code == TokenCode.RETURN) {
             if (this.scope != "global") {
                 return parseReturn();
@@ -2453,8 +2539,7 @@ class Parser {
         } else if (getCurrentToken().code == TokenCode.INTEGER_LITERAL ||
                 getCurrentToken().code == TokenCode.REAL_LITERAL ||
                 getCurrentToken().code == TokenCode.BOOLEAN_LITERAL ||
-                getCurrentToken().code == TokenCode.STRING_LITERAL ||
-                getCurrentToken().code == TokenCode.IDENTIFIER) {
+                getCurrentToken().code == TokenCode.STRING_LITERAL) {
             return parseExpression();
         }
         throw new ParseException("Unexpected statement type: " + getCurrentToken().code + " in line " + getCurrentToken().span.lineNum);
@@ -3216,7 +3301,7 @@ class Lexer {
         // Путь к файлу
 
         for (int i = 0; i <= 0; i++) {
-            String filePath = "test/test" + i + ".d";
+            String filePath = "src/test" + i + ".d";
 
             System.out.println();
             System.out.println();
