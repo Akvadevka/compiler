@@ -1,3 +1,4 @@
+import java.io.Console;
 import java.util.*;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -15,14 +16,17 @@ class SymbolTable {
         public Node node;
         public int numUse;
 
-        Symbol(String name, String type, int length, String scope, int index, Node node) {
+        Symbol(String name, String type, int length, String scope, int index, Node node, int numUse) {
             this.name = name;
             this.type = type;
             this.length = length;
             this.scope = scope;
             this.index = index;
             this.node = node;
-            this.numUse = 0;
+            this.numUse = numUse;
+        }
+        Symbol(String name, String type, int length, String scope, int index, Node node) {
+            this(name, type, length, scope, index, node, 0);
         }
 
         @Override
@@ -38,8 +42,13 @@ class SymbolTable {
         this.table = new HashMap<>();
     }
 
+    public void addSymbol(String name, String type, int length, String scope, int index, Node node, int numUse) {
+        Symbol symbol = new Symbol(name, type, length, scope, index, node, numUse);
+        table.put(name, symbol);
+    }
+
     public void addSymbol(String name, String type, int length, String scope, int index, Node node) {
-        Symbol symbol = new Symbol(name, type, length, scope, index, node);
+        Symbol symbol = new Symbol(name, type, length, scope, index, node, 0);
         table.put(name, symbol);
     }
 
@@ -90,7 +99,16 @@ class SymbolTable {
         if (symbol != null) {
             return symbol.numUse;
         } else {
-            return -1;
+            return 10;
+        }
+    }
+
+    public String getSymbolType(String name) {
+        Symbol symbol = table.get(name);
+        if (symbol != null) {
+            return (symbol.type);
+        } else {
+            return "";
         }
     }
 
@@ -805,12 +823,18 @@ class VariableDeclarationNode extends DeclarationNode {
     IdentifierNode variableName;
     Node initializer;
     String type;
+    DictionaryEntryCall dictionaryEntryCall;
 
-    VariableDeclarationNode(IdentifierNode variableName, Node initializer, String type) {
+    public VariableDeclarationNode(IdentifierNode variableName, Node initializer, String type) {
         this.variableName = variableName;
         this.initializer = initializer;
         this.type = type;
         addChild(initializer);
+    }
+
+    public VariableDeclarationNode(DictionaryEntryCall h, Node initializer, String type) {
+        this((IdentifierNode) null, initializer, type);
+        this.dictionaryEntryCall = h;
     }
 
     public IdentifierNode getName() {
@@ -819,14 +843,98 @@ class VariableDeclarationNode extends DeclarationNode {
 
     @Override
     public String toString() {
-        return "Variable: " + variableName +" | type: " + this.type;
+        if (dictionaryEntryCall == null) {
+            return "Variable: " + variableName +" | type: " + this.type;
+        }
+        return "Variable: " + dictionaryEntryCall.toString() +" | type: " + this.type;
     }
     @Override
     public void execute(Environment environment) {
+        if (dictionaryEntryCall == null) {
+            if (this.initializer instanceof LiteralNode) {
+                environment.addVariable(this.variableName.getName(), ((LiteralNode) this.initializer).getValue(), "global");
+            } else if (this.initializer instanceof ListNode) {
+                environment.addVariable(this.variableName.getName(), ((ListNode) this.initializer).toValueList(), "global");
+            } else if (this.initializer instanceof ExpressionNode) {
+                environment.addVariable(this.variableName.getName(), ((LiteralNode) ((ExpressionNode) this.initializer).executeExpressions(environment)).getValue(), "global");
+            } else if (this.initializer instanceof DictionaryNode) {
+                environment.addVariable(this.variableName.getName(), ((DictionaryNode) this.initializer).toValueDictionary(), "global");
+            } else if (this.initializer instanceof IdentifierNode) {
+                environment.addVariable(this.variableName.getName(), environment.getVariable(((IdentifierNode) this.initializer).getName(), "global").getValue(), "global");
+            }else if (this.initializer instanceof FunctionCall) {
+                environment.addVariable(this.variableName.getName(), ((FunctionCall) this.initializer).executeGet(environment), "global");
+            }
+            System.out.println(environment.getVariable(this.variableName.getName(), "global"));
+        } else {
+            rec(dictionaryEntryCall.getKey(), dictionaryEntryCall.getValue(), environment);
+//            if (dictionaryEntryCall.getKey() instanceof IdentifierNode) {
+//
+//            }
+//            System.out.println((dictionaryEntryCall.getKey()));
+        }
+
+    }
+
+    public static boolean canConvertToInt(String str) {
+        try {
+            Integer.parseInt(str);
+            return true;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    public Object rec(Object key, Object firstIndex, Environment environment) {
+        Object ident = key;
+        List<Object> indexArray = new ArrayList<>();
+        while (ident instanceof DictionaryEntryCall) {
+            indexArray.add(((DictionaryEntryCall) ident).getValue());
+            ident = ((DictionaryEntryCall) ident).getKey();
+        }
+
+        Collections.reverse(indexArray);
+        indexArray.add(firstIndex);
+        Object list = environment.getVariable(((IdentifierNode) ident).getName(), "global").getValue();
+
+        for (int i = 0; i < indexArray.size() - 1; i++) {
+            Object indexI = ((IdentifierNode) indexArray.get(i)).getName();
+
+            if (list instanceof List<?>) {
+                // Если текущий уровень - список
+                List<Object> listNe = (List<Object>) list;
+
+                int index = Integer.parseInt((String) indexI);
+
+                list = listNe.get(index);
+            } else if (list instanceof LinkedHashMap<?, ?>) {
+                // Если текущий уровень - словарь
+                LinkedHashMap<Object, Object> map = (LinkedHashMap<Object, Object>) list;
+
+
+                String mapKey = (String) indexI;
+
+                list = map.get(mapKey);
+            } else {
+                throw new IllegalArgumentException("Invalid structure: neither list nor map at path index " + key);
+            }
+
+//            if (canConvertToInt((String) indexI)) {
+//                Object nested = list.get(Integer.parseInt((String) indexI));
+//                if (nested instanceof List<?>) {
+//                    list = (List<Object>) nested;
+//                } else if () {
+//
+//                } else {
+//                    throw new IllegalArgumentException("Invalid structure: expected a nested list at index " + indexI);
+//                }
+//            }
+
+        }
+        Object newValue = null;
         if (this.initializer instanceof LiteralNode) {
-            environment.addVariable(this.variableName.getName(), ((LiteralNode) this.initializer).getValue(), "global");
+            newValue =((LiteralNode) this.initializer).getValue();
         } else if (this.initializer instanceof ListNode) {
-            environment.addVariable(this.variableName.getName(), ((ListNode) this.initializer).toValueList(), "global");
+            newValue =((ListNode) this.initializer).toValueList();
         } else if (this.initializer instanceof ExpressionNode) {
             if (((ExpressionNode) this.initializer).getLeftOp() instanceof ListNode &&
                     ((ExpressionNode) this.initializer).getRightOp() instanceof ListNode) {
@@ -901,9 +1009,92 @@ class VariableDeclarationNode extends DeclarationNode {
             environment.addVariable(this.variableName.getName(), environment.getVariable(((IdentifierNode) this.initializer).getName(), "global").getValue(), "global");
         } else if (this.initializer instanceof FunctionCall) {
             environment.addVariable(this.variableName.getName(), ((FunctionCall) this.initializer).executeInput(environment), "global");
+        } else if (this.initializer instanceof DictionaryNode) {
+            newValue =((DictionaryNode) this.initializer).toValueDictionary();
+        } 
+      //else if (this.initializer instanceof IdentifierNode) {
+      //      newValue =environment.getVariable(((IdentifierNode) this.initializer).getName(), "global").getValue();
+      //  }
+
+        // Изменяем значение на последнем уровне
+        Object lastIndex = ((IdentifierNode) indexArray.get(indexArray.size() - 1)).getName();
+        if (list instanceof List<?>) {
+            // Изменяем значение в списке
+            List<Object> listNe = (List<Object>) list;
+
+            int index = Integer.parseInt((String) lastIndex);
+
+            listNe.set(index, newValue);
+        } else if (list instanceof LinkedHashMap<?, ?>) {
+            // Изменяем значение в словаре
+            Map<Object, Object> map = (LinkedHashMap<Object, Object>) list;
+
+            String mapKey = (String) lastIndex;
+
+            map.put(mapKey, newValue);
+        } else {
+            throw new IllegalArgumentException("Invalid structure: cannot update value at path");
         }
-        System.out.println(environment.getVariable(this.variableName.getName(), "global"));
+//        list.set(lastIndex, newValue);
+        System.out.println("---------------------------");
+        System.out.println(key);
+        System.out.println(ident);
+        System.out.println(indexArray);
+        System.out.println(list);
+        System.out.println(environment.getVariable(((IdentifierNode) ident).getName(), "global").getValue());
+        System.out.println("---------------------------");
+        return null;
     }
+
+    // Преобразование в изменяемый список
+    @SuppressWarnings("unchecked")
+    private static List<Object> makeMutable(List<?> original) {
+        return original.stream()
+                .map(item -> item instanceof List<?> ? makeMutable((List<?>) item) : item)
+                .collect(java.util.stream.Collectors.toList());
+    }
+
+
+//    public Object recursionEntry(Environment environment) {
+//        String varName = ((IdentifierNode) dictionaryEntryCall.getKey()).getName();
+//        Variable var = environment.getVariable(varName, "global");
+//        Object varValue = var.getValue();
+//        Object newValue = null;
+//        if (this.initializer instanceof LiteralNode) {
+//            newValue =((LiteralNode) this.initializer).getValue();
+//        } else if (this.initializer instanceof ListNode) {
+//            newValue =((ListNode) this.initializer).toValueList();
+//        } else if (this.initializer instanceof ExpressionNode) {
+//            newValue =((LiteralNode) ((ExpressionNode) this.initializer).executeExpressions(environment)).getValue();
+//        } else if (this.initializer instanceof DictionaryNode) {
+//            newValue =((DictionaryNode) this.initializer).toValueDictionary();
+//        } else if (this.initializer instanceof IdentifierNode) {
+//            newValue =environment.getVariable(((IdentifierNode) this.initializer).getName(), "global").getValue();
+//        }
+//
+//        if (varValue instanceof List<?>) {
+//            int index = 0;
+//            if (this.dictionaryEntryCall.getValue() instanceof LiteralNode) {
+//                index = (int) ((LiteralNode) this.dictionaryEntryCall.getValue()).getValue();
+//            } else if (this.dictionaryEntryCall.getValue() instanceof ExpressionNode) {
+//                index = (int) ((LiteralNode) ((ExpressionNode) this.dictionaryEntryCall.getValue()).executeExpressions(environment)).getValue();
+//            } else if (this.dictionaryEntryCall.getValue() instanceof IdentifierNode) {
+//                if (environment.haveVariable(((IdentifierNode) this.dictionaryEntryCall.getValue()).getName(), "global")) {
+//                    index = (int) environment.getVariable(((IdentifierNode) this.dictionaryEntryCall.getValue()).getName(), "global").getValue();
+//                } else {
+//                    System.out.println(environment.haveVariable(((IdentifierNode) this.dictionaryEntryCall.getValue()).getName(), "global"));
+//                    System.out.println(((IdentifierNode) this.dictionaryEntryCall.getValue()).getName());
+//                    index = ((IdentifierNode) this.dictionaryEntryCall.getValue()).getValue();
+//                }
+//
+//            }
+//            List<?> list = (List<?>) varValue;
+//            @SuppressWarnings("unchecked")
+//            List<Object> mutableList = (List<Object>) list;
+//            mutableList.set(index, newValue);
+//            environment.updateVariable(varName, mutableList, "global");
+//        }
+//    }
 }
 
 class IdentifierNode extends Node {
@@ -980,12 +1171,21 @@ class FunctionDeclarationNode extends DeclarationNode {
 //        addChild(parameters); // Добавляем параметры в дочерние узлы
 
         addChild(functionBody); // Добавляем body в дочерние узлы
-
-
     }
 
     @Override
     public void execute(Environment environment) {
+        String funcName = ((IdentifierNode) this.header.getChildren().get(0)).getName();
+//        System.out.println(this.header.getChildren().get(1).getChildren());
+        for (int i = 0; i < this.header.getChildren().get(1).getChildren().size(); i++) {
+            String paramName = ((VariableDeclarationNode) this.header.getChildren().get(1).getChildren().get(i)).variableName.getName();
+            environment.addVariable(paramName, null, funcName);
+        }
+        List<Node> functionNodeArray = new ArrayList<>();
+        functionNodeArray.add(this.header);
+        functionNodeArray.add(this.functionBody);
+        BlockNode function = new BlockNode(functionNodeArray, "function");
+        environment.addVariable(funcName, function, "global");
     }
 
     public IdentifierNode getName() {
@@ -1186,6 +1386,23 @@ class ReturnNode extends StatementNode {
 
     @Override
     public void execute(Environment environment) {
+//        System.out.println(this.expression);
+//        Object element = this.expression.getChildren().get(0);
+        Object element = this.expression;
+        Object re = null;
+        if (element instanceof IdentifierNode) {
+            re = environment.getVariable(((IdentifierNode) element).getName(), "global").getValue();
+        } else if (element instanceof LiteralNode) {
+            re = ((LiteralNode) element).getValue();
+        }  else if (element instanceof ExpressionNode) {
+            re = ((LiteralNode) ((ExpressionNode) element).executeExpressions(environment)).getValue();
+        } else if (element instanceof DictionaryEntryCall) {
+            re = ((DictionaryEntryCall) element).getValueIndex(environment);
+        } else if (element instanceof FunctionCall) {
+            re = ((FunctionCall) element).executeGet(environment);
+        }
+        environment.addVariable("return" + environment.getScopeType(), re, environment.getScopeType());
+//        System.out.println(this.expression.getChildren().get(0) instanceof DictionaryEntryNode);
     }
 }
 
@@ -1217,8 +1434,9 @@ class PrintNode extends StatementNode {
                 System.out.println(((LiteralNode) ((ExpressionNode) element).executeExpressions(environment)).getValue());
             } else if (element instanceof DictionaryEntryCall) {
                 System.out.println(((DictionaryEntryCall) element).getValueIndex(environment));
+            } else if (element instanceof FunctionCall) {
+                System.out.println(((FunctionCall) element).executeGet(environment));
             }
-
         }
 //        System.out.println(this.expression.getChildren().get(0) instanceof DictionaryEntryNode);
     }
@@ -1410,32 +1628,97 @@ class DictionaryEntryCall extends Node {
             return false; // Не удалось преобразовать
         }
     }
-
-    public Object getValueIndex(Environment environment) {
-        if (environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue() instanceof List<?>) {
+  
+  public Object getValueIndexWithVariable(Object obj, Environment environment) {
+        if (obj instanceof List<?>) {
             if (canConvertToInt(((IdentifierNode) this.value).getName())) {
-                return ((List<?>) environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue()).get(Integer.parseInt(((IdentifierNode) this.value).getName()));
+                return ((List<?>) obj).get(Integer.parseInt(((IdentifierNode) this.value).getName()));
             } else {
                 if (environment.getVariable(((IdentifierNode) this.value).getName(), "global").getValue() instanceof Integer) {
-                    return ((List<?>) environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue()).get((int) environment.getVariable(((IdentifierNode) this.value).getName(), "global").getValue());
+                    return ((List<?>) obj).get((int) environment.getVariable(((IdentifierNode) this.value).getName(), "global").getValue());
                 }
             }
-        } else if (environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue() instanceof LinkedHashMap<?, ?>) {
+        } else if (obj instanceof LinkedHashMap<?, ?>) {
             if (canConvertToInt(((IdentifierNode) this.value).getName())) {
-                LinkedHashMap<?, ?> dictionary = (LinkedHashMap<?, ?>) environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue();
-                ArrayList<?> array = (ArrayList<?>) dictionary.values();
+                LinkedHashMap<?, ?> dictionary = (LinkedHashMap<?, ?>) obj;
+                ArrayList<?> array = new ArrayList<>(dictionary.values());
                 if (Integer.parseInt(((IdentifierNode) this.value).getName()) < 0 || Integer.parseInt(((IdentifierNode) this.value).getName()) >= array.size()) {
                     throw new IndexOutOfBoundsException("Индекс вне границ словаря.");
                 }
                 return array.get(Integer.parseInt(((IdentifierNode) this.value).getName()));
 //                return environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue().
             } else {
-                if (environment.getVariable(((IdentifierNode) this.value).getName(), "global").getValue() instanceof Integer) {
-                    return ((List<?>) environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue()).get((int) environment.getVariable(((IdentifierNode) this.value).getName(), "global").getValue());
-                }
+                LinkedHashMap<?, ?> dictionary = (LinkedHashMap<?, ?>) obj;
+                return dictionary.get(((IdentifierNode) this.value).getName());
             }
         }
         throw new ParseException("Bad type in index.");
+    }
+
+    public Object getValueIndex(Environment environment) {
+      Object obj = null;
+        if (this.key instanceof DictionaryEntryCall) {
+            obj = ((DictionaryEntryCall) this.key).getValueIndex(environment);
+        }
+        if (obj == null) {
+            obj = environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue();
+        }
+        return getValueIndexWithVariable(obj, environment);
+// <<<<<<< parser2
+//         if (environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue() instanceof List<?>) {
+//             if (canConvertToInt(((IdentifierNode) this.value).getName())) {
+//                 return ((List<?>) environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue()).get(Integer.parseInt(((IdentifierNode) this.value).getName()));
+//             } else {
+//                 if (environment.getVariable(((IdentifierNode) this.value).getName(), "global").getValue() instanceof Integer) {
+//                     return ((List<?>) environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue()).get((int) environment.getVariable(((IdentifierNode) this.value).getName(), "global").getValue());
+//                 }
+//             }
+//         } else if (environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue() instanceof LinkedHashMap<?, ?>) {
+//             if (canConvertToInt(((IdentifierNode) this.value).getName())) {
+//                 LinkedHashMap<?, ?> dictionary = (LinkedHashMap<?, ?>) environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue();
+//                 ArrayList<?> array = (ArrayList<?>) dictionary.values();
+// =======
+//         Object obj = null;
+//         if (this.key instanceof DictionaryEntryCall) {
+//             obj = ((DictionaryEntryCall) this.key).getValueIndex(environment);
+//         }
+//         if (obj == null) {
+//             obj = environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue();
+//         }
+//         return getValueIndexWithVariable(obj, environment);
+//     }
+
+//     public Object getValueIndexWithVariable(Object obj, Environment environment) {
+//         if (obj instanceof List<?>) {
+//             if (canConvertToInt(((IdentifierNode) this.value).getName())) {
+//                 return ((List<?>) obj).get(Integer.parseInt(((IdentifierNode) this.value).getName()));
+//             } else {
+//                 if (environment.getVariable(((IdentifierNode) this.value).getName(), "global").getValue() instanceof Integer) {
+//                     return ((List<?>) obj).get((int) environment.getVariable(((IdentifierNode) this.value).getName(), "global").getValue());
+//                 }
+//             }
+//         } else if (obj instanceof LinkedHashMap<?, ?>) {
+//             if (canConvertToInt(((IdentifierNode) this.value).getName())) {
+//                 LinkedHashMap<?, ?> dictionary = (LinkedHashMap<?, ?>) obj;
+//                 ArrayList<?> array = new ArrayList<>(dictionary.values());
+// >>>>>>> inter
+//                 if (Integer.parseInt(((IdentifierNode) this.value).getName()) < 0 || Integer.parseInt(((IdentifierNode) this.value).getName()) >= array.size()) {
+//                     throw new IndexOutOfBoundsException("Индекс вне границ словаря.");
+//                 }
+//                 return array.get(Integer.parseInt(((IdentifierNode) this.value).getName()));
+// //                return environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue().
+//             } else {
+// <<<<<<< parser2
+//                 if (environment.getVariable(((IdentifierNode) this.value).getName(), "global").getValue() instanceof Integer) {
+//                     return ((List<?>) environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue()).get((int) environment.getVariable(((IdentifierNode) this.value).getName(), "global").getValue());
+//                 }
+// =======
+//                 LinkedHashMap<?, ?> dictionary = (LinkedHashMap<?, ?>) obj;
+//                 return dictionary.get(((IdentifierNode) this.value).getName());
+// >>>>>>> inter
+//             }
+//         }
+//         throw new ParseException("Bad type in index.");
     }
 
     @Override
@@ -1494,6 +1777,45 @@ class FunctionCall extends Node {
 
     @Override
     public void execute(Environment environment) {
+        String funcName = ((IdentifierNode) this.funcIdentifier).getName();
+        BlockNode functionNode = (BlockNode) environment.getVariable(funcName, "global").getValue();
+        System.out.println(param.getChildren());
+        for (int i = 0; i < functionNode.getChildren().get(0).getChildren().get(1).getChildren().size(); i++) {
+            String paramName = ((VariableDeclarationNode) functionNode.getChildren().get(0).getChildren().get(1).getChildren().get(i)).variableName.getName();
+            environment.updateVariable(paramName, ((LiteralNode) param.getChildren().get(i)).getValue() , funcName);
+        }
+
+        environment.setScopeType(funcName);
+        for (int j = 0; j < functionNode.getChildren().get(1).getChildren().size(); j++) {
+            functionNode.getChildren().get(1).getChildren().get(j).execute(environment);
+            System.out.println(functionNode.getChildren().get(1).getChildren());
+            if (environment.haveVariable("return" + environment.getScopeType(), environment.getScopeType())) {
+                return;
+            }
+        }
+        environment.setScopeType("global");
+    }
+
+
+    public Object executeGet(Environment environment) {
+        String funcName = ((IdentifierNode) this.funcIdentifier).getName();
+        BlockNode functionNode = (BlockNode) environment.getVariable(funcName, "global").getValue();
+        System.out.println(param.getChildren());
+        for (int i = 0; i < functionNode.getChildren().get(0).getChildren().get(1).getChildren().size(); i++) {
+            String paramName = ((VariableDeclarationNode) functionNode.getChildren().get(0).getChildren().get(1).getChildren().get(i)).variableName.getName();
+            environment.updateVariable(paramName, ((LiteralNode) param.getChildren().get(i)).getValue() , funcName);
+        }
+
+        environment.setScopeType(funcName);
+
+        for (int j = 0; j < functionNode.getChildren().get(1).getChildren().size(); j++) {
+            functionNode.getChildren().get(1).getChildren().get(j).execute(environment);
+            if (environment.haveVariable("return" + environment.getScopeType(), environment.getScopeType())) {
+                return environment.getVariable("return" + environment.getScopeType(), environment.getScopeType()).getValue();
+            }
+        }
+        environment.setScopeType("global");
+        return null;
     }
 
     public Object executeInput(Environment environment) {
@@ -1641,7 +1963,28 @@ class Parser {
             throw new ParseException("Incorrect use of " + getCurrentToken().code +  " in line: " + getCurrentToken().span.lineNum);
         }
         Identifier variableName = (Identifier) getCurrentToken();
+        Node init = new IdentifierNode(variableName.identifier);
+        boolean dictFlag = false;
         advance(); // Пропускаем идентификатор
+        if (!flagVarDeclare) {
+            if (getCurrentToken().code == TokenCode.LBRACKET || getCurrentToken().code == TokenCode.DOT) {
+                dictFlag = true;
+                while (getCurrentToken().code == TokenCode.LBRACKET || getCurrentToken().code == TokenCode.DOT) {
+                    if (getCurrentToken().code == TokenCode.LBRACKET){
+                        advance();  // Переходим к следующему токену
+                        init = getEntry(init);  // Получаем узел для вложенного элемента
+                        advance();
+                    } else {
+                        advance();  // Переходим к следующему токену
+                        init = getEntry(init);
+                    }
+
+                }
+//                return new VariableDeclarationNode((DictionaryEntryCall) init, new IdentifierNode("2"));
+            }
+        }
+
+
 //        System.out.println(this.symbolTable.getSymbol(variableName.identifier + "_" + this.scope) != null);
 //        if (!flagVarDeclare && this.symbolTable.getSymbol(variableName.identifier + "_" + this.scope) != null) {
 //            this.symbolTable.addNumUse(variableName.identifier + "_" + this.scope);
@@ -1676,7 +2019,7 @@ class Parser {
 
                 this.scope = variableName.identifier;
 
-                IdentifierNode init = new IdentifierNode(variableName.identifier);
+                init = new IdentifierNode(variableName.identifier);
 //            String functionName = functionToken.identifier;
 
 
@@ -1699,7 +2042,6 @@ class Parser {
                         parameters.add(re);
                     }
                 }
-
 
                 BlockNode param = new BlockNode(parameters, "param");
                 if (getCurrentToken().code != TokenCode.RPAREN) {
@@ -1756,7 +2098,12 @@ class Parser {
             } else if (initializer instanceof DictionaryNode) {
                 type = "dictionary";
             }
-            return new VariableDeclarationNode(variableIdentifier, initializer, type);
+            if (dictFlag) {
+                return new VariableDeclarationNode((DictionaryEntryCall) init, initializer, type);
+            } else {
+                return new VariableDeclarationNode(variableIdentifier, initializer, type);
+            }
+
         } else {
             IdentifierNode variableIdentifier = new IdentifierNode(variableName.identifier);
             return new VariableDeclarationNode(variableIdentifier, null, "empty");
@@ -1852,18 +2199,20 @@ class Parser {
             List<Node> parameters = new ArrayList<>();
             if (getCurrentToken().code != TokenCode.RPAREN) {
                 VariableDeclarationNode re = parseParameter();
-                this.symbolTable.addSymbol(re.variableName.getName() + "_" + this.scope, "param", 0, functionToken.identifier, -1, null);
+                this.symbolTable.addSymbol(re.variableName.getName() + "_" + this.scope, "param", 0, functionToken.identifier, -1, null, 10);
                 parameters.add(re);
 
                 while (getCurrentToken().code == TokenCode.COMMA) {
                     advance(); // Пропускаем запятую
                     re = parseParameter();
-                    this.symbolTable.addSymbol(re.variableName.getName() + "_" + this.scope, "param", 0, functionToken.identifier, -1, null);
+                    this.symbolTable.addSymbol(re.variableName.getName() + "_" + this.scope, "param", 0, functionToken.identifier, -1, null, 10);
                     parameters.add(re);
                 }
             }
 
-
+            System.out.println("--------------");
+            System.out.println(parameters);
+            System.out.println("---------------");
             BlockNode param = new BlockNode(parameters, "param");
             if (getCurrentToken().code != TokenCode.RPAREN) {
                 throw new ParseException("Expected ')', found: " + getCurrentToken());
@@ -2861,7 +3210,14 @@ class Environment {
         return scopeType;
     }
 
+    public void setScopeType(String type) {
+        scopeType = type;
+    }
+
     public void addVariable(String name, Object value, String scopeType) {
+        if (this.scopeType != "global") {
+            scopeType = this.scopeType;
+        }
         scopedVariables.putIfAbsent(scopeType, new HashMap<>());
         Map<String, Variable> scopeVars = scopedVariables.get(scopeType);
         if (scopeVars.containsKey(name)) {
@@ -2872,6 +3228,9 @@ class Environment {
     }
 
     public void updateVariable(String name, Object value, String scopeType) {
+        if (this.scopeType != "global") {
+            scopeType = this.scopeType;
+        }
         Map<String, Variable> scopeVars = scopedVariables.get(scopeType);
         if (scopeVars == null || !scopeVars.containsKey(name)) {
             throw new RuntimeException("Переменная " + name + " не найдена в области " + scopeType + ".");
@@ -2879,7 +3238,21 @@ class Environment {
         scopeVars.get(name).setValue(value);
     }
 
+    public boolean haveVariable(String name, String scopeType) {
+        if (this.scopeType != "global") {
+            scopeType = this.scopeType;
+        }
+        Map<String, Variable> scopeVars = scopedVariables.get(scopeType);
+        if (scopeVars == null || !scopeVars.containsKey(name)) {
+            return false;
+        }
+        return true;
+    }
+
     public Variable getVariable(String name, String scopeType) {
+        if (this.scopeType != "global") {
+            scopeType = this.scopeType;
+        }
         Map<String, Variable> scopeVars = scopedVariables.get(scopeType);
         if (scopeVars == null || !scopeVars.containsKey(name)) {
             throw new RuntimeException("Переменная " + name + " не найдена в области " + scopeType + ".");
@@ -3118,8 +3491,10 @@ class Optimizer {
         try {
             if (node instanceof VariableDeclarationNode declarationNode) {
                 String variableName = declarationNode.getName().getName();
-                if (this.symbolTable.getSymbolUseNum(variableName + "_global") <= 0) {
-                    return null;
+                if (!Objects.equals(this.symbolTable.getSymbolType(variableName + "_global"), "param")) {
+                    if (this.symbolTable.getSymbolUseNum(variableName + "_global") <= 0) {
+                        return null;
+                    }
                 }
             }
         } catch (NullPointerException e) {
@@ -3563,7 +3938,7 @@ class Lexer {
         // Путь к файлу
 
         for (int i = 0; i <= 0; i++) {
-            String filePath = "test/test" + i + ".d";
+            String filePath = "src/test" + i + ".d";
 
             System.out.println();
             System.out.println();
