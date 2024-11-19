@@ -3,6 +3,7 @@ import java.util.*;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.Scanner;
 
 
 class SymbolTable {
@@ -325,10 +326,102 @@ class ExpressionNode extends Node {
     }
 
     @Override
-    public void execute(Environment environment) {
-        executeExpressions(environment);
+    public void execute(Environment environment) {}
+    public Object executeConcat(Environment environment) {
+        List<Object> rightEvaluatedList = null;
+        LinkedHashMap<Object, Object> rightEvaluatedDict = null;
+        List<Object> leftEvaluatedList = null;
+        LinkedHashMap<Object, Object> leftEvaluatedDict = null;
+        if (rightOperand instanceof IdentifierNode) {
+            String varName = ((IdentifierNode) rightOperand).getName();
+            Object value = environment.getVariable(varName, "global").getValue();
+            if (value == null) {
+                throw new RuntimeException("Variable '" + varName + "' is not defined in the current scope.");
+            }
+            if (value instanceof List<?>) {
+                rightEvaluatedList = (List<Object>) value;
+            }
+            if (value instanceof LinkedHashMap<?, ?>) {
+                rightEvaluatedDict = (LinkedHashMap<Object, Object>) value;
+            }
+        }
+
+        if (leftOperand instanceof IdentifierNode) {
+            String varName = ((IdentifierNode) leftOperand).getName();
+            Object value = environment.getVariable(varName, "global").getValue();
+            if (value == null) {
+                throw new RuntimeException("Variable '" + varName + "' is not defined in the current scope.");
+            }
+            if (value instanceof List<?>) {
+                leftEvaluatedList = (List<Object>) value;
+            }
+            if (value instanceof LinkedHashMap<?, ?>) {
+                leftEvaluatedDict = (LinkedHashMap<Object, Object>) value;
+            }
+        }
+
+        if (rightOperand instanceof ListNode) {
+            rightEvaluatedList = ((ListNode) rightOperand).toValueList();
+        }
+        else if (rightOperand instanceof DictionaryNode) {
+            rightEvaluatedDict = ((DictionaryNode) rightOperand).toValueDictionary();
+        }
+        if (leftOperand instanceof ListNode) {
+            leftEvaluatedList = ((ListNode) leftOperand).toValueList();
+        }
+        else if (leftOperand instanceof DictionaryNode) {
+            leftEvaluatedDict = ((DictionaryNode) leftOperand).toValueDictionary();
+        }
+        Object temp = null;
+        if (leftOperand instanceof ExpressionNode) {
+            temp = ((ExpressionNode) leftOperand).executeConcat(environment);
+        } else if (rightOperand instanceof ExpressionNode) {
+            temp = ((ExpressionNode) rightOperand).executeConcat(environment);
+        }
+        if (temp instanceof List<?>) {
+            leftEvaluatedList = (List<Object>)temp;
+        } else if (temp instanceof LinkedHashMap<?, ?>) {
+            leftEvaluatedDict = (LinkedHashMap<Object, Object>) temp;
+        }
+        Object result;
+        if (rightEvaluatedList != null & leftEvaluatedList != null) {
+            result = concatLists(leftEvaluatedList, rightEvaluatedList);
+            return result;
+        }
+        if (rightEvaluatedDict != null & leftEvaluatedDict != null) {
+            result = concatDicts(leftEvaluatedDict, rightEvaluatedDict);
+            return result;
+        }
+        System.out.println(rightEvaluatedList);
+        System.out.println(leftEvaluatedList);
+        System.out.println(rightEvaluatedDict);
+        System.out.println(leftEvaluatedDict);
+        if ((rightEvaluatedList != null & leftEvaluatedList == null) ||
+                (rightEvaluatedList == null & leftEvaluatedList != null) ||
+                (rightEvaluatedDict != null & leftEvaluatedDict == null) ||
+                (rightEvaluatedDict == null & leftEvaluatedDict != null)) {
+            throw new RuntimeException("Invalid operand types ");
+        }
+
+        return this;
     }
+
+    public List<Object> concatLists(List<Object> left, List<Object> right) {
+        List<Object> result = new ArrayList<Object>();
+        result.addAll(left);
+        result.addAll(right);
+        return result;
+    }
+
+    public LinkedHashMap<Object, Object> concatDicts(LinkedHashMap<Object, Object> left, LinkedHashMap<Object, Object> right) {
+        LinkedHashMap<Object, Object> result = new LinkedHashMap<Object, Object>();
+        result.putAll(left);
+        result.putAll(right);
+        return result;
+    }
+
     public Node executeExpressions(Environment environment) {
+
         Node rightEvaluated = rightOperand instanceof ExpressionNode
                 ? ((ExpressionNode) rightOperand).executeExpressions(environment)
                 : resolveValue(rightOperand, environment, "global");
@@ -425,11 +518,17 @@ class ExpressionNode extends Node {
                 break;
             case DIVIDE:
                 if (leftType.equals("int") && rightType.equals("int")) {
+                    if (Integer.parseInt(((LiteralNode) rightOperand).getValue().toString()) == 0) {
+                        throw new ArithmeticException("Division by zero!");
+                    }
                     int result = Integer.parseInt(((LiteralNode) leftOperand).getValue().toString()) / Integer.parseInt(((LiteralNode) rightOperand).getValue().toString());
                     return new LiteralNode((Object) result, "int");
                 } else if ((leftType.equals("int") && rightType.equals("real")) ||
                         (leftType.equals("real") && rightType.equals("int")) ||
                         (leftType.equals("real") && rightType.equals("real"))) {
+                    if (Double.parseDouble(((LiteralNode) rightOperand).getValue().toString()) == 0) {
+                        throw new ArithmeticException("Division by zero!");
+                    }
                     double result = Double.parseDouble(((LiteralNode) leftOperand).getValue().toString()) / Double.parseDouble(((LiteralNode) rightOperand).getValue().toString());
                     return new LiteralNode((Object) result, "real");
                 }
@@ -589,11 +688,17 @@ class ExpressionNode extends Node {
                 break;
             case DIVIDE:
                 if (leftType.equals("int") && rightType.equals("int")) {
+                    if (Integer.parseInt(((LiteralNode) rightOperand).getValue().toString()) == 0) {
+                        throw new ArithmeticException("Division by zero!");
+                    }
                     int result = Integer.parseInt(((LiteralNode) leftOperand).getValue().toString()) / Integer.parseInt(((LiteralNode) rightOperand).getValue().toString());
                     return new LiteralNode((Object) result, "int");
                 } else if ((leftType.equals("int") && rightType.equals("real")) ||
                         (leftType.equals("real") && rightType.equals("int")) ||
                         (leftType.equals("real") && rightType.equals("real"))) {
+                    if (Double.parseDouble(((LiteralNode) rightOperand).getValue().toString()) == 0) {
+                        throw new ArithmeticException("Division by zero!");
+                    }
                     double result = Double.parseDouble(((LiteralNode) leftOperand).getValue().toString()) / Double.parseDouble(((LiteralNode) rightOperand).getValue().toString());
                     return new LiteralNode((Object) result, "real");
                 }
@@ -831,12 +936,85 @@ class VariableDeclarationNode extends DeclarationNode {
         } else if (this.initializer instanceof ListNode) {
             newValue =((ListNode) this.initializer).toValueList();
         } else if (this.initializer instanceof ExpressionNode) {
-            newValue =((LiteralNode) ((ExpressionNode) this.initializer).executeExpressions(environment)).getValue();
+            if (((ExpressionNode) this.initializer).getLeftOp() instanceof ListNode &&
+                    ((ExpressionNode) this.initializer).getRightOp() instanceof ListNode) {
+                environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+            } else if (((ExpressionNode) this.initializer).getLeftOp() instanceof DictionaryNode &&
+                    ((ExpressionNode) this.initializer).getRightOp() instanceof DictionaryNode) {
+                environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+            } else if (((ExpressionNode) this.initializer).getLeftOp() instanceof IdentifierNode) {
+                if (environment.getVariable(((IdentifierNode) ((ExpressionNode) this.initializer).getLeftOp()).getName(), "global").getValue() instanceof List<?>) {
+                    if (((ExpressionNode) this.initializer).getRightOp() instanceof IdentifierNode) {
+                        if (environment.getVariable(((IdentifierNode) ((ExpressionNode) this.initializer).getRightOp()).getName(), "global").getValue() instanceof List<?>) {
+                            environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                        }
+                    } else if (((ExpressionNode) this.initializer).getRightOp() instanceof ListNode) {
+                        environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                    }
+                } else if (environment.getVariable(((IdentifierNode) ((ExpressionNode) this.initializer).getLeftOp()).getName(), "global").getValue() instanceof LinkedHashMap<?, ?>) {
+                    if (((ExpressionNode) this.initializer).getRightOp() instanceof IdentifierNode) {
+                        if (environment.getVariable(((IdentifierNode) ((ExpressionNode) this.initializer).getRightOp()).getName(), "global").getValue() instanceof LinkedHashMap<?, ?>) {
+                            environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                        }
+                    } else if (((ExpressionNode) this.initializer).getRightOp() instanceof DictionaryNode) {
+                        environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                    }
+                } else {
+                    environment.addVariable(this.variableName.getName(), ((LiteralNode) ((ExpressionNode) this.initializer).executeExpressions(environment)).getValue(), "global");
+                }
+            }  else if (((ExpressionNode) this.initializer).getLeftOp() instanceof ListNode) {
+                if (((ExpressionNode) this.initializer).getRightOp() instanceof IdentifierNode) {
+                    if (environment.getVariable(((IdentifierNode) ((ExpressionNode) this.initializer).getRightOp()).getName(), "global").getValue() instanceof List<?>) {
+                        environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                    }
+                } else if (((ExpressionNode) this.initializer).getRightOp() instanceof ListNode) {
+                    environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                }
+            } else if (((ExpressionNode) this.initializer).getLeftOp() instanceof ExpressionNode) {
+                if (((ExpressionNode) this.initializer).getRightOp() instanceof IdentifierNode) {
+                    if (environment.getVariable(((IdentifierNode) ((ExpressionNode) this.initializer).getRightOp()).getName(), "global").getValue() instanceof List<?>) {
+                        environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                    } else if (environment.getVariable(((IdentifierNode) ((ExpressionNode) this.initializer).getRightOp()).getName(), "global").getValue() instanceof LinkedHashMap<?, ?>) {
+                        environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                    }
+                } else if (((ExpressionNode) this.initializer).getRightOp() instanceof ListNode) {
+                    environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                }  else if (((ExpressionNode) this.initializer).getRightOp() instanceof DictionaryNode) {
+                    environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                }
+            }  else if (((ExpressionNode) this.initializer).getLeftOp() instanceof DictionaryNode) {
+                if (((ExpressionNode) this.initializer).getRightOp() instanceof IdentifierNode) {
+                    if (environment.getVariable(((IdentifierNode) ((ExpressionNode) this.initializer).getRightOp()).getName(), "global").getValue() instanceof LinkedHashMap<?, ?>) {
+                        environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                    }
+                } else if (((ExpressionNode) this.initializer).getRightOp() instanceof DictionaryNode) {
+                    environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                }
+            }  else if (((ExpressionNode) this.initializer).getLeftOp() instanceof ExpressionNode) {
+                if (((ExpressionNode) this.initializer).getRightOp() instanceof IdentifierNode) {
+                    System.out.println(((ExpressionNode) this.initializer).getRightOp());
+
+                    if (environment.getVariable(((IdentifierNode) ((ExpressionNode) this.initializer).getRightOp()).getName(), "global").getValue() instanceof LinkedHashMap<?, ?>) {
+                        environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                    }
+                } else if (((ExpressionNode) this.initializer).getRightOp() instanceof DictionaryNode) {
+                    environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                }
+            } else {
+                environment.addVariable(this.variableName.getName(), ((LiteralNode) ((ExpressionNode) this.initializer).executeExpressions(environment)).getValue(), "global");
+            }
+        } else if (this.initializer instanceof DictionaryNode) {
+            environment.addVariable(this.variableName.getName(), ((DictionaryNode) this.initializer).toValueDictionary(), "global");
+        } else if (this.initializer instanceof IdentifierNode) {
+            environment.addVariable(this.variableName.getName(), environment.getVariable(((IdentifierNode) this.initializer).getName(), "global").getValue(), "global");
+        } else if (this.initializer instanceof FunctionCall) {
+            environment.addVariable(this.variableName.getName(), ((FunctionCall) this.initializer).executeInput(environment), "global");
         } else if (this.initializer instanceof DictionaryNode) {
             newValue =((DictionaryNode) this.initializer).toValueDictionary();
-        } else if (this.initializer instanceof IdentifierNode) {
-            newValue =environment.getVariable(((IdentifierNode) this.initializer).getName(), "global").getValue();
-        }
+        } 
+      //else if (this.initializer instanceof IdentifierNode) {
+      //      newValue =environment.getVariable(((IdentifierNode) this.initializer).getName(), "global").getValue();
+      //  }
 
         // Изменяем значение на последнем уровне
         Object lastIndex = ((IdentifierNode) indexArray.get(indexArray.size() - 1)).getName();
@@ -1045,6 +1223,38 @@ class IfNode extends StatementNode {
 
     @Override
     public void execute(Environment environment) {
+        boolean flag;
+        if (condition instanceof LiteralNode) {
+            if (((LiteralNode) condition).getValue() instanceof Boolean) {
+                if ((boolean) ((LiteralNode) condition).getValue()) {
+                    for (int j = 0; j < this.thenBody.getChildren().size(); j++) {
+                        this.thenBody.getChildren().get(j).execute(environment);
+                    }
+                } else if (elseBody != null) {
+                    for (int j = 0; j < this.elseBody.getChildren().size(); j++) {
+                        this.elseBody.getChildren().get(j).execute(environment);
+                    }
+                }
+            }else {
+                throw new IllegalArgumentException("Invalid expression in if");
+            }
+        }
+        if (condition instanceof ExpressionNode) {
+            if (((LiteralNode) ((ExpressionNode) this.condition).executeExpressions(environment)).getValue() instanceof Boolean) {
+                flag = (boolean) ((LiteralNode) ((ExpressionNode) this.condition).executeExpressions(environment)).getValue();
+                if (flag) {
+                    for (int j = 0; j < this.thenBody.getChildren().size(); j++) {
+                        this.thenBody.getChildren().get(j).execute(environment);
+                    }
+                } else if (elseBody != null) {
+                    for (int j = 0; j < this.elseBody.getChildren().size(); j++) {
+                        this.elseBody.getChildren().get(j).execute(environment);
+                    }
+                }
+            } else {
+                throw new IllegalArgumentException("Invalid expression in if");
+            }
+        }
     }
 }
 
@@ -1070,6 +1280,34 @@ class WhileLoopNode extends StatementNode {
 
     @Override
     public void execute(Environment environment) {
+        boolean flag;
+        if (condition instanceof LiteralNode) {
+            if (((LiteralNode) ((ExpressionNode) this.condition).executeExpressions(environment)).getValue() instanceof Boolean) {
+                if ((boolean) ((LiteralNode) condition).getValue()) {
+                    for (int j = 0; j < this.body.getChildren().size(); j++) {
+                        this.body.getChildren().get(j).execute(environment);
+                    }
+                }
+                return;
+            }
+            else {
+                throw new IllegalArgumentException("Invalid expression in while");
+            }
+        }
+        if (condition instanceof ExpressionNode) {
+            if (((LiteralNode) ((ExpressionNode) this.condition).executeExpressions(environment)).getValue() instanceof Boolean) {
+                flag = (boolean) ((LiteralNode) ((ExpressionNode) this.condition).executeExpressions(environment)).getValue();
+                while (flag) {
+                    for (int j = 0; j < this.body.getChildren().size(); j++) {
+                        this.body.getChildren().get(j).execute(environment);
+                    }
+                    flag = (boolean) ((LiteralNode) ((ExpressionNode) this.condition).executeExpressions(environment)).getValue();
+                }
+                return;
+            } else {
+                throw new IllegalArgumentException("Invalid expression in while");
+            }
+        }
     }
 }
 
@@ -1390,19 +1628,8 @@ class DictionaryEntryCall extends Node {
             return false; // Не удалось преобразовать
         }
     }
-
-    public Object getValueIndex(Environment environment) {
-        Object obj = null;
-        if (this.key instanceof DictionaryEntryCall) {
-            obj = ((DictionaryEntryCall) this.key).getValueIndex(environment);
-        }
-        if (obj == null) {
-            obj = environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue();
-        }
-        return getValueIndexWithVariable(obj, environment);
-    }
-
-    public Object getValueIndexWithVariable(Object obj, Environment environment) {
+  
+  public Object getValueIndexWithVariable(Object obj, Environment environment) {
         if (obj instanceof List<?>) {
             if (canConvertToInt(((IdentifierNode) this.value).getName())) {
                 return ((List<?>) obj).get(Integer.parseInt(((IdentifierNode) this.value).getName()));
@@ -1426,6 +1653,72 @@ class DictionaryEntryCall extends Node {
             }
         }
         throw new ParseException("Bad type in index.");
+    }
+
+    public Object getValueIndex(Environment environment) {
+      Object obj = null;
+        if (this.key instanceof DictionaryEntryCall) {
+            obj = ((DictionaryEntryCall) this.key).getValueIndex(environment);
+        }
+        if (obj == null) {
+            obj = environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue();
+        }
+        return getValueIndexWithVariable(obj, environment);
+// <<<<<<< parser2
+//         if (environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue() instanceof List<?>) {
+//             if (canConvertToInt(((IdentifierNode) this.value).getName())) {
+//                 return ((List<?>) environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue()).get(Integer.parseInt(((IdentifierNode) this.value).getName()));
+//             } else {
+//                 if (environment.getVariable(((IdentifierNode) this.value).getName(), "global").getValue() instanceof Integer) {
+//                     return ((List<?>) environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue()).get((int) environment.getVariable(((IdentifierNode) this.value).getName(), "global").getValue());
+//                 }
+//             }
+//         } else if (environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue() instanceof LinkedHashMap<?, ?>) {
+//             if (canConvertToInt(((IdentifierNode) this.value).getName())) {
+//                 LinkedHashMap<?, ?> dictionary = (LinkedHashMap<?, ?>) environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue();
+//                 ArrayList<?> array = (ArrayList<?>) dictionary.values();
+// =======
+//         Object obj = null;
+//         if (this.key instanceof DictionaryEntryCall) {
+//             obj = ((DictionaryEntryCall) this.key).getValueIndex(environment);
+//         }
+//         if (obj == null) {
+//             obj = environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue();
+//         }
+//         return getValueIndexWithVariable(obj, environment);
+//     }
+
+//     public Object getValueIndexWithVariable(Object obj, Environment environment) {
+//         if (obj instanceof List<?>) {
+//             if (canConvertToInt(((IdentifierNode) this.value).getName())) {
+//                 return ((List<?>) obj).get(Integer.parseInt(((IdentifierNode) this.value).getName()));
+//             } else {
+//                 if (environment.getVariable(((IdentifierNode) this.value).getName(), "global").getValue() instanceof Integer) {
+//                     return ((List<?>) obj).get((int) environment.getVariable(((IdentifierNode) this.value).getName(), "global").getValue());
+//                 }
+//             }
+//         } else if (obj instanceof LinkedHashMap<?, ?>) {
+//             if (canConvertToInt(((IdentifierNode) this.value).getName())) {
+//                 LinkedHashMap<?, ?> dictionary = (LinkedHashMap<?, ?>) obj;
+//                 ArrayList<?> array = new ArrayList<>(dictionary.values());
+// >>>>>>> inter
+//                 if (Integer.parseInt(((IdentifierNode) this.value).getName()) < 0 || Integer.parseInt(((IdentifierNode) this.value).getName()) >= array.size()) {
+//                     throw new IndexOutOfBoundsException("Индекс вне границ словаря.");
+//                 }
+//                 return array.get(Integer.parseInt(((IdentifierNode) this.value).getName()));
+// //                return environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue().
+//             } else {
+// <<<<<<< parser2
+//                 if (environment.getVariable(((IdentifierNode) this.value).getName(), "global").getValue() instanceof Integer) {
+//                     return ((List<?>) environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue()).get((int) environment.getVariable(((IdentifierNode) this.value).getName(), "global").getValue());
+//                 }
+// =======
+//                 LinkedHashMap<?, ?> dictionary = (LinkedHashMap<?, ?>) obj;
+//                 return dictionary.get(((IdentifierNode) this.value).getName());
+// >>>>>>> inter
+//             }
+//         }
+//         throw new ParseException("Bad type in index.");
     }
 
     @Override
@@ -1523,6 +1816,22 @@ class FunctionCall extends Node {
         }
         environment.setScopeType("global");
         return null;
+    }
+
+    public Object executeInput(Environment environment) {
+        Scanner scanner = new Scanner(System.in);
+        if (Objects.equals(((IdentifierNode) funcIdentifier).getName(), "Read INT")) {
+            return scanner.nextInt();
+        }
+        else if (Objects.equals(((IdentifierNode) funcIdentifier).getName(), "Read REAL")){
+            return scanner.nextFloat();
+        }
+        else if (Objects.equals(((IdentifierNode) funcIdentifier).getName(), "Read STRING")){
+            return scanner.nextLine();
+        }
+        else {
+            throw new RuntimeException("Invalid function call");
+        }
     }
 }
 
