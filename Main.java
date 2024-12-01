@@ -15,14 +15,17 @@ class SymbolTable {
         public Node node;
         public int numUse;
 
-        Symbol(String name, String type, int length, String scope, int index, Node node) {
+        Symbol(String name, String type, int length, String scope, int index, Node node, int numUse) {
             this.name = name;
             this.type = type;
             this.length = length;
             this.scope = scope;
             this.index = index;
             this.node = node;
-            this.numUse = 0;
+            this.numUse = numUse;
+        }
+        Symbol(String name, String type, int length, String scope, int index, Node node) {
+            this(name, type, length, scope, index, node, 0);
         }
 
         @Override
@@ -38,8 +41,13 @@ class SymbolTable {
         this.table = new HashMap<>();
     }
 
+    public void addSymbol(String name, String type, int length, String scope, int index, Node node, int numUse) {
+        Symbol symbol = new Symbol(name, type, length, scope, index, node, numUse);
+        table.put(name, symbol);
+    }
+
     public void addSymbol(String name, String type, int length, String scope, int index, Node node) {
-        Symbol symbol = new Symbol(name, type, length, scope, index, node);
+        Symbol symbol = new Symbol(name, type, length, scope, index, node, 0);
         table.put(name, symbol);
     }
 
@@ -90,7 +98,16 @@ class SymbolTable {
         if (symbol != null) {
             return symbol.numUse;
         } else {
-            return -1;
+            return 10;
+        }
+    }
+
+    public String getSymbolType(String name) {
+        Symbol symbol = table.get(name);
+        if (symbol != null) {
+            return (symbol.type);
+        } else {
+            return "";
         }
     }
 
@@ -110,6 +127,21 @@ class SymbolTable {
 
     public void printTable() {
         table.values().forEach(System.out::println);
+    }
+
+    public boolean hasFunctionWithName(String inputName) {
+        String targetBaseName = inputName.split("_")[0]; // Получаем базовую часть имени из входного параметра
+
+        for (Symbol symbol : table.values()) {
+            if ("function".equals(symbol.type)) {
+                String symbolBaseName = symbol.name.split("_")[0]; // Получаем базовую часть имени из таблицы
+                if (targetBaseName.equals(symbolBaseName)) {
+                    return true; // Совпадение найдено
+                }
+            }
+        }
+
+        return false; // Совпадений нет
     }
 }
 
@@ -374,10 +406,10 @@ class ExpressionNode extends Node {
             result = concatDicts(leftEvaluatedDict, rightEvaluatedDict);
             return result;
         }
-        System.out.println(rightEvaluatedList);
-        System.out.println(leftEvaluatedList);
-        System.out.println(rightEvaluatedDict);
-        System.out.println(leftEvaluatedDict);
+//        System.out.println(rightEvaluatedList);
+//        System.out.println(leftEvaluatedList);
+//        System.out.println(rightEvaluatedDict);
+//        System.out.println(leftEvaluatedDict);
         if ((rightEvaluatedList != null & leftEvaluatedList == null) ||
                 (rightEvaluatedList == null & leftEvaluatedList != null) ||
                 (rightEvaluatedDict != null & leftEvaluatedDict == null) ||
@@ -403,11 +435,37 @@ class ExpressionNode extends Node {
     }
 
     public Node executeExpressions(Environment environment) {
-
+        Node leftEvaluated =  null;
+        if (rightOperand instanceof FunctionCall) {
+            Object resultR = ((FunctionCall) rightOperand).executeGet(environment);
+            if (leftOperand instanceof FunctionCall) {
+                Object resultL = ((FunctionCall) leftOperand).executeGet(environment);
+                return FuncExpression(resultL, resultR);
+            }
+            else if (operator != TokenCode.NOT) {
+                leftEvaluated = leftOperand instanceof ExpressionNode
+                        ? ((ExpressionNode) leftOperand).executeExpressions(environment)
+                        : resolveValue(leftOperand, environment, "global");
+                return FuncExpression(leftEvaluated, resultR);
+            }
+            return FuncExpression(null, resultR);
+        }
+        if (leftOperand instanceof FunctionCall) {
+            Object resultL = ((FunctionCall) leftOperand).executeGet(environment);
+            if (rightOperand instanceof FunctionCall) {
+                Object resultR = ((FunctionCall) rightOperand).executeGet(environment);
+                return FuncExpression(resultL, resultR);
+            }
+            else {
+                Node rightEvaluated = rightOperand instanceof ExpressionNode
+                        ? ((ExpressionNode) rightOperand).executeExpressions(environment)
+                        : resolveValue(rightOperand, environment, "global");
+                return FuncExpression(resultL, rightEvaluated);
+            }
+        }
         Node rightEvaluated = rightOperand instanceof ExpressionNode
                 ? ((ExpressionNode) rightOperand).executeExpressions(environment)
                 : resolveValue(rightOperand, environment, "global");
-        Node leftEvaluated =  null;
         if (operator != TokenCode.NOT) {
             leftEvaluated = leftOperand instanceof ExpressionNode
                     ? ((ExpressionNode) leftOperand).executeExpressions(environment)
@@ -453,7 +511,380 @@ class ExpressionNode extends Node {
         }
         return this;
     }
+    public Node FuncExpression(Object leftOperand, Object rightOperand) {
+        String leftType = null;
+        String rightType = null;
+        if (leftOperand != null && leftOperand instanceof Node) {
+            leftType = ((LiteralNode) leftOperand).getType();
+        } else if (leftOperand != null){
+            leftType = determineType(leftOperand);
+        }
+        if (rightOperand instanceof Node) {
+            rightType = ((LiteralNode) rightOperand).getType();
+        } else {
+            rightType = determineType(rightOperand);
+        }
 
+        switch (operator) {
+            case PLUS:
+                if (leftType.equals("int") && rightType.equals("int")) {
+                    int result;
+                    if (leftOperand instanceof Node) {
+                        int left = Integer.parseInt(((LiteralNode) leftOperand).getValue().toString());
+                        result = left + (Integer)rightOperand;
+                    }else if (rightOperand instanceof Node) {
+                        int right = Integer.parseInt(((LiteralNode) rightOperand).getValue().toString());
+                        result = right + (Integer)leftOperand;
+                    } else {
+                        result = (Integer)rightOperand + (Integer)leftOperand;
+                    }
+                    return new LiteralNode((Object) result, "int");
+                } else if ((leftType.equals("int") && rightType.equals("real")) ||
+                        (leftType.equals("real") && rightType.equals("int")) ||
+                        (leftType.equals("real") && rightType.equals("real"))) {
+                    double result;
+                    if (leftOperand instanceof Node) {
+                        double left = Double.parseDouble(((LiteralNode) leftOperand).getValue().toString());
+                        result = left + (Double)rightOperand;
+                    }else if (rightOperand instanceof Node) {
+                        double right = Double.parseDouble(((LiteralNode) rightOperand).getValue().toString());
+                        result = right + (Double)leftOperand;
+                    } else {
+                        result = (Double)rightOperand + (Double)leftOperand;
+                    }
+                    return new LiteralNode((Object) result, "real");
+                } else if (leftType.equals("string") && rightType.equals("string")) {
+                    String result;
+                    if (leftOperand instanceof Node) {
+                        String left = ((LiteralNode) leftOperand).getValue().toString();
+                        result = left + rightOperand.toString();
+                    }else if (rightOperand instanceof Node) {
+                        String right = ((LiteralNode) rightOperand).getValue().toString();
+                        result = leftOperand.toString() + right;
+                    } else {
+                        result = leftOperand.toString() + rightOperand.toString();
+                    }
+                    return new LiteralNode((Object) result, "string");
+                }
+//                if (leftType.equals("dictionary") && rightType.equals("dictionary")) return;
+//                if (leftType.equals("list") && rightType.equals("list")) return;
+                break;
+
+            case MINUS:
+                if (leftType.equals("int") && rightType.equals("int")) {
+                    int result;
+                    if (leftOperand instanceof Node) {
+                        int left = Integer.parseInt(((LiteralNode) leftOperand).getValue().toString());
+                        result = left - (Integer)rightOperand;
+                    }else if (rightOperand instanceof Node) {
+                        int right = Integer.parseInt(((LiteralNode) rightOperand).getValue().toString());
+                        result = (Integer)leftOperand - right;
+                    } else {
+                        result = (Integer)leftOperand - (Integer)rightOperand;
+                    }
+                    return new LiteralNode((Object) result, "int");
+                } else if ((leftType.equals("int") && rightType.equals("real")) ||
+                        (leftType.equals("real") && rightType.equals("int")) ||
+                        (leftType.equals("real") && rightType.equals("real"))) {
+                    double result;
+                    if (leftOperand instanceof Node) {
+                        double left = Double.parseDouble(((LiteralNode) leftOperand).getValue().toString());
+                        result = left - (Double)rightOperand;
+                    }else if (rightOperand instanceof Node) {
+                        double right = Double.parseDouble(((LiteralNode) rightOperand).getValue().toString());
+                        result = (Double)leftOperand - right;
+                    } else {
+                        result = (Double)leftOperand - (Double)rightOperand;
+                    }
+                    return new LiteralNode((Object) result, "real");
+                }
+                break;
+            case MULTIPLY:
+                if (leftType.equals("int") && rightType.equals("int")) {
+                    int result;
+                    if (leftOperand instanceof Node) {
+                        int left = Integer.parseInt(((LiteralNode) leftOperand).getValue().toString());
+                        result = left * (Integer)rightOperand;
+                    }else if (rightOperand instanceof Node) {
+                        int right = Integer.parseInt(((LiteralNode) rightOperand).getValue().toString());
+                        result = right * (Integer)leftOperand;
+                    } else {
+                        result = (Integer)rightOperand * (Integer)leftOperand;
+                    }
+                    return new LiteralNode((Object) result, "int");
+                } else if ((leftType.equals("int") && rightType.equals("real")) ||
+                        (leftType.equals("real") && rightType.equals("int")) ||
+                        (leftType.equals("real") && rightType.equals("real"))) {
+                    double result;
+                    if (leftOperand instanceof Node) {
+                        double left = Double.parseDouble(((LiteralNode) leftOperand).getValue().toString());
+                        result = left * (Double)rightOperand;
+                    }else if (rightOperand instanceof Node) {
+                        double right = Double.parseDouble(((LiteralNode) rightOperand).getValue().toString());
+                        result = right * (Double)leftOperand;
+                    } else {
+                        result = (Double)rightOperand * (Double)leftOperand;
+                    }
+                    return new LiteralNode((Object) result, "real");
+                }
+                break;
+            case DIVIDE:
+                if (leftType.equals("int") && rightType.equals("int")) {
+                    if (rightOperand instanceof Node) {
+                        if (Integer.parseInt(((LiteralNode) rightOperand).getValue().toString()) == 0) {
+                            throw new ArithmeticException("Division by zero!");
+                        }
+                    } else {
+                        if ((Integer)rightOperand == 0) {
+                            throw new ArithmeticException("Division by zero!");
+                        }
+                    }
+                    int result;
+                    if (leftOperand instanceof Node) {
+                        int left = Integer.parseInt(((LiteralNode) leftOperand).getValue().toString());
+                        result = left / (Integer)rightOperand;
+                    }else if (rightOperand instanceof Node) {
+                        int right = Integer.parseInt(((LiteralNode) rightOperand).getValue().toString());
+                        result = right / (Integer)leftOperand;
+                    } else {
+                        result = (Integer)leftOperand / (Integer)rightOperand;
+                    }
+                    return new LiteralNode((Object) result, "int");
+                } else if ((leftType.equals("int") && rightType.equals("real")) ||
+                        (leftType.equals("real") && rightType.equals("int")) ||
+                        (leftType.equals("real") && rightType.equals("real"))) {
+                    if (rightOperand instanceof Node) {
+                        if (Double.parseDouble(((LiteralNode) rightOperand).getValue().toString()) == 0) {
+                            throw new ArithmeticException("Division by zero!");
+                        }
+                    } else {
+                        if ((Integer)rightOperand == 0) {
+                            throw new ArithmeticException("Division by zero!");
+                        }
+                    }
+                    double result;
+                    if (leftOperand instanceof Node) {
+                        double left = Double.parseDouble(((LiteralNode) leftOperand).getValue().toString());
+                        result = left / (Double)rightOperand;
+                    }else if (rightOperand instanceof Node) {
+                        double right = Double.parseDouble(((LiteralNode) rightOperand).getValue().toString());
+                        result = right / (Double)leftOperand;
+                    } else {
+                        result = (Double)rightOperand / (Double)leftOperand;
+                    }
+                    return new LiteralNode((Object) result, "real");
+                }
+                break;
+
+            case LESS:
+            case GREATER:
+            case LESS_EQUAL:
+            case GREATER_EQUAL:
+            case EQUAL:
+            case NOT_EQUAL:
+                if (leftType.equals("int") && rightType.equals("real")) {
+                    boolean result;
+                    int leftValue;
+                    double rightValue;
+                    if (leftOperand instanceof Node) {
+                        leftValue = Integer.parseInt(((LiteralNode) leftOperand).getValue().toString());
+                    } else {
+                        leftValue = (int) leftOperand;
+                    }
+                    if (rightOperand instanceof Node) {
+                        rightValue = Double.parseDouble(((LiteralNode) rightOperand).getValue().toString());
+                    } else {
+                        rightValue = (double) rightOperand;
+                    }
+                    switch (operator) {
+                        case LESS:
+                            result = leftValue < rightValue;
+                            break;
+                        case GREATER:
+                            result = leftValue > rightValue;
+                            break;
+                        case LESS_EQUAL:
+                            result = leftValue <= rightValue;
+                            break;
+                        case GREATER_EQUAL:
+                            result = leftValue >= rightValue;
+                            break;
+                        case EQUAL:
+                            result = leftValue == rightValue;
+                            break;
+                        case NOT_EQUAL:
+                            result = leftValue != rightValue;
+                            break;
+                        default:
+                            throw new ParseException("Invalid comparison operation.");
+                    }
+                    return new LiteralNode((Object) result, "boolean");
+                }
+                if (leftType.equals("real") && rightType.equals("int")) {
+                    boolean result;
+                    double leftValue;
+                    int rightValue;
+                    if (leftOperand instanceof Node) {
+                        leftValue = Double.parseDouble(((LiteralNode) leftOperand).getValue().toString());
+                    } else {
+                        leftValue = (double) leftOperand;
+                    }
+                    if (rightOperand instanceof Node) {
+                        rightValue = Integer.parseInt(((LiteralNode) rightOperand).getValue().toString());
+                    } else {
+                        rightValue = (int) rightOperand;
+                    }
+                    switch (operator) {
+                        case LESS:
+                            result = leftValue < rightValue;
+                            break;
+                        case GREATER:
+                            result = leftValue > rightValue;
+                            break;
+                        case LESS_EQUAL:
+                            result = leftValue <= rightValue;
+                            break;
+                        case GREATER_EQUAL:
+                            result = leftValue >= rightValue;
+                            break;
+                        case EQUAL:
+                            result = leftValue == rightValue;
+                            break;
+                        case NOT_EQUAL:
+                            result = leftValue != rightValue;
+                            break;
+                        default:
+                            throw new ParseException("Invalid comparison operation.");
+                    }
+                    return new LiteralNode((Object) result, "boolean");
+                }else if (leftType.equals("int") && rightType.equals("int")) {
+                    boolean result;
+                    int leftValue;
+                    int rightValue;
+                    if (leftOperand instanceof Node) {
+                        leftValue = Integer.parseInt(((LiteralNode) leftOperand).getValue().toString());
+                    } else {
+                        leftValue = (int) leftOperand;
+                    }
+                    if (rightOperand instanceof Node) {
+                        rightValue = Integer.parseInt(((LiteralNode) rightOperand).getValue().toString());
+                    } else {
+                        rightValue = (int) rightOperand;
+                    }
+                    switch (operator) {
+                        case LESS:
+                            result = leftValue < rightValue;
+                            break;
+                        case GREATER:
+                            result = leftValue > rightValue;
+                            break;
+                        case LESS_EQUAL:
+                            result = leftValue <= rightValue;
+                            break;
+                        case GREATER_EQUAL:
+                            result = leftValue >= rightValue;
+                            break;
+                        case EQUAL:
+                            result = leftValue == rightValue;
+                            break;
+                        case NOT_EQUAL:
+                            result = leftValue != rightValue;
+                            break;
+                        default:
+                            throw new ParseException("Invalid comparison operation.");
+                    }
+                    return new LiteralNode((Object) result, "boolean");
+                }else if (leftType.equals("real") && rightType.equals("real")) {
+                    boolean result;
+                    double leftValue;
+                    double rightValue;
+                    if (leftOperand instanceof Node) {
+                        leftValue = Double.parseDouble(((LiteralNode) leftOperand).getValue().toString());
+                    } else {
+                        leftValue = (double) leftOperand;
+                    }
+                    if (rightOperand instanceof Node) {
+                        rightValue = Double.parseDouble(((LiteralNode) rightOperand).getValue().toString());
+                    } else {
+                        rightValue = (double) rightOperand;
+                    }
+                    switch (operator) {
+                        case LESS:
+                            result = leftValue < rightValue;
+                            break;
+                        case GREATER:
+                            result = leftValue > rightValue;
+                            break;
+                        case LESS_EQUAL:
+                            result = leftValue <= rightValue;
+                            break;
+                        case GREATER_EQUAL:
+                            result = leftValue >= rightValue;
+                            break;
+                        case EQUAL:
+                            result = leftValue == rightValue;
+                            break;
+                        case NOT_EQUAL:
+                            result = leftValue != rightValue;
+                            break;
+                        default:
+                            throw new ParseException("Invalid comparison operation.");
+                    }
+                    return new LiteralNode((Object) result, "boolean");
+                }
+                break;
+            case AND:
+            case OR:
+            case XOR:
+                if (leftType.equals("boolean") && rightType.equals("boolean")) {
+                    boolean result;
+                    boolean leftValue;
+                    boolean rightValue;
+                    if (leftOperand instanceof Node) {
+                        leftValue = Boolean.parseBoolean(((LiteralNode) leftOperand).getValue().toString());
+                    } else {
+                        leftValue = (boolean) leftOperand;
+                    }
+                    if (rightOperand instanceof Node) {
+                        rightValue = Boolean.parseBoolean(((LiteralNode) rightOperand).getValue().toString());
+                    } else {
+                        rightValue = (boolean) rightOperand;
+                    }
+                    switch (operator) {
+                        case AND:
+                            result = leftValue && rightValue;
+                            break;
+                        case OR:
+                            result = leftValue || rightValue;
+                            break;
+                        case XOR:
+                            result = leftValue ^ rightValue;
+                            break;
+                        default:
+                            throw new ParseException("Unsupported operation: " + operator);
+                    }
+                    return new LiteralNode((Object) result, "boolean");
+                }
+                break;
+
+            case NOT:
+                if (rightType.equals("boolean")) {
+                    boolean rightValue;
+                    if (rightOperand instanceof Node) {
+                        rightValue = Boolean.parseBoolean(((LiteralNode) rightOperand).getValue().toString());
+                    } else {
+                        rightValue = (boolean)rightOperand;
+                    }
+                    boolean result = !rightValue;
+                    return new LiteralNode((Object) result, "boolean");
+                }
+                break;
+
+            default:
+                throw new RuntimeException("Unsupported operation for types: " + leftType + " and " + rightType);
+        }
+        throw new RuntimeException("Invalid operand types for operation: " + leftType + " and " + rightType);
+    }
     public Node checkTypes() {
         String leftType = ((LiteralNode) leftOperand).getType();
         String rightType = ((LiteralNode) rightOperand).getType();
@@ -593,7 +1024,6 @@ class ExpressionNode extends Node {
 
     private Node resolveValue(Node node, Environment environment, String scopeType) {
         if (node instanceof LiteralNode) {
-            // Если узел — литерал, возвращаем его как есть
             return node;
         } else if (node instanceof IdentifierNode) {
             // Если узел — переменная, извлекаем значение из окружения
@@ -616,6 +1046,10 @@ class ExpressionNode extends Node {
             return "boolean";
         } else if (value instanceof String) {
             return "string";
+        } else if (value instanceof ArrayList<?>) {
+            return "array";
+        } else if (value instanceof LinkedHashMap<?,?>) {
+            return "tuple";
         }
         throw new RuntimeException("Unsupported value type: " + value.getClass());
     }
@@ -805,12 +1239,18 @@ class VariableDeclarationNode extends DeclarationNode {
     IdentifierNode variableName;
     Node initializer;
     String type;
+    DictionaryEntryCall dictionaryEntryCall;
 
-    VariableDeclarationNode(IdentifierNode variableName, Node initializer, String type) {
+    public VariableDeclarationNode(IdentifierNode variableName, Node initializer, String type) {
         this.variableName = variableName;
         this.initializer = initializer;
         this.type = type;
         addChild(initializer);
+    }
+
+    public VariableDeclarationNode(DictionaryEntryCall h, Node initializer, String type) {
+        this((IdentifierNode) null, initializer, type);
+        this.dictionaryEntryCall = h;
     }
 
     public IdentifierNode getName() {
@@ -819,14 +1259,171 @@ class VariableDeclarationNode extends DeclarationNode {
 
     @Override
     public String toString() {
-        return "Variable: " + variableName +" | type: " + this.type;
+        if (dictionaryEntryCall == null) {
+            return "Variable: " + variableName +" | type: " + this.type;
+        }
+        return "Variable: " + dictionaryEntryCall.toString() +" | type: " + this.type;
     }
     @Override
     public void execute(Environment environment) {
+        if (dictionaryEntryCall == null) {
+            if (this.initializer instanceof LiteralNode) {
+                environment.addVariable(this.variableName.getName(), ((LiteralNode) this.initializer).getValue(), "global");
+            } else if (this.initializer instanceof FunctionDeclarationNode) {
+                ((FunctionDeclarationNode) this.initializer).execute(environment);
+            } else if (this.initializer instanceof ListNode) {
+                environment.addVariable(this.variableName.getName(), ((ListNode) this.initializer).toValueList(), "global");
+            } else if (this.initializer instanceof ExpressionNode) {
+                if (((ExpressionNode) this.initializer).getLeftOp() instanceof ListNode &&
+                        ((ExpressionNode) this.initializer).getRightOp() instanceof ListNode) {
+                    environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                } else if (((ExpressionNode) this.initializer).getLeftOp() instanceof DictionaryNode &&
+                        ((ExpressionNode) this.initializer).getRightOp() instanceof DictionaryNode) {
+                    environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                } else if (((ExpressionNode) this.initializer).getLeftOp() instanceof IdentifierNode) {
+                    if (environment.getVariable(((IdentifierNode) ((ExpressionNode) this.initializer).getLeftOp()).getName(), "global").getValue() instanceof List<?>) {
+                        if (((ExpressionNode) this.initializer).getRightOp() instanceof IdentifierNode) {
+                            if (environment.getVariable(((IdentifierNode) ((ExpressionNode) this.initializer).getRightOp()).getName(), "global").getValue() instanceof List<?>) {
+                                environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                            }
+                        } else if (((ExpressionNode) this.initializer).getRightOp() instanceof ListNode) {
+                            environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                        }
+                    } else if (environment.getVariable(((IdentifierNode) ((ExpressionNode) this.initializer).getLeftOp()).getName(), "global").getValue() instanceof LinkedHashMap<?, ?>) {
+                        if (((ExpressionNode) this.initializer).getRightOp() instanceof IdentifierNode) {
+                            if (environment.getVariable(((IdentifierNode) ((ExpressionNode) this.initializer).getRightOp()).getName(), "global").getValue() instanceof LinkedHashMap<?, ?>) {
+                                environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                            }
+                        } else if (((ExpressionNode) this.initializer).getRightOp() instanceof DictionaryNode) {
+                            environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                        }
+                    } else {
+                        environment.addVariable(this.variableName.getName(), ((LiteralNode) ((ExpressionNode) this.initializer).executeExpressions(environment)).getValue(), "global");
+                    }
+                }  else if (((ExpressionNode) this.initializer).getLeftOp() instanceof ListNode) {
+                    if (((ExpressionNode) this.initializer).getRightOp() instanceof IdentifierNode) {
+                        if (environment.getVariable(((IdentifierNode) ((ExpressionNode) this.initializer).getRightOp()).getName(), "global").getValue() instanceof List<?>) {
+                            environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                        }
+                    } else if (((ExpressionNode) this.initializer).getRightOp() instanceof ListNode) {
+                        environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                    }
+                } else if (((ExpressionNode) this.initializer).getLeftOp() instanceof ExpressionNode) {
+                    if (((ExpressionNode) this.initializer).getRightOp() instanceof IdentifierNode) {
+                        if (environment.getVariable(((IdentifierNode) ((ExpressionNode) this.initializer).getRightOp()).getName(), "global").getValue() instanceof List<?>) {
+                            environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                        } else if (environment.getVariable(((IdentifierNode) ((ExpressionNode) this.initializer).getRightOp()).getName(), "global").getValue() instanceof LinkedHashMap<?, ?>) {
+                            environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                        }
+                    } else if (((ExpressionNode) this.initializer).getRightOp() instanceof ListNode) {
+                        environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                    }  else if (((ExpressionNode) this.initializer).getRightOp() instanceof DictionaryNode) {
+                        environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                    }
+                }  else if (((ExpressionNode) this.initializer).getLeftOp() instanceof DictionaryNode) {
+                    if (((ExpressionNode) this.initializer).getRightOp() instanceof IdentifierNode) {
+                        if (environment.getVariable(((IdentifierNode) ((ExpressionNode) this.initializer).getRightOp()).getName(), "global").getValue() instanceof LinkedHashMap<?, ?>) {
+                            environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                        }
+                    } else if (((ExpressionNode) this.initializer).getRightOp() instanceof DictionaryNode) {
+                        environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                    }
+                }  else if (((ExpressionNode) this.initializer).getLeftOp() instanceof ExpressionNode) {
+                    if (((ExpressionNode) this.initializer).getRightOp() instanceof IdentifierNode) {
+//                        System.out.println(((ExpressionNode) this.initializer).getRightOp());
+
+                        if (environment.getVariable(((IdentifierNode) ((ExpressionNode) this.initializer).getRightOp()).getName(), "global").getValue() instanceof LinkedHashMap<?, ?>) {
+                            environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                        }
+                    } else if (((ExpressionNode) this.initializer).getRightOp() instanceof DictionaryNode) {
+                        environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                    }
+                } else {
+                    environment.addVariable(this.variableName.getName(), ((LiteralNode) ((ExpressionNode) this.initializer).executeExpressions(environment)).getValue(), "global");
+                }
+            } else if (this.initializer instanceof DictionaryNode) {
+                environment.addVariable(this.variableName.getName(), ((DictionaryNode) this.initializer).toValueDictionary(), "global");
+            } else if (this.initializer instanceof IdentifierNode) {
+                environment.addVariable(this.variableName.getName(), environment.getVariable(((IdentifierNode) this.initializer).getName(), "global").getValue(), "global");
+            } else if (this.initializer instanceof FunctionCall) {
+                String name = ((IdentifierNode) this.initializer.getChildren().get(0)).getName();
+                if (Objects.equals(name, "Read INT") || Objects.equals(name, "Read STRING") || Objects.equals(name, "Read REAL")) {
+                    environment.addVariable(this.variableName.getName(), ((FunctionCall) this.initializer).executeInput(environment), "global");
+                } else {
+                    environment.addVariable(this.variableName.getName(), ((FunctionCall) this.initializer).executeGet(environment), "global");
+                }
+            }
+//            System.out.println(environment.getVariable(this.variableName.getName(), "global"));
+        } else {
+            rec(dictionaryEntryCall.getKey(), dictionaryEntryCall.getValue(), environment);
+//            if (dictionaryEntryCall.getKey() instanceof IdentifierNode) {
+//
+//            }
+//            System.out.println((dictionaryEntryCall.getKey()));
+        }
+
+    }
+
+    public static boolean canConvertToInt(String str) {
+        try {
+            Integer.parseInt(str);
+            return true;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    public Object rec(Object key, Object firstIndex, Environment environment) {
+        Object ident = key;
+        List<Object> indexArray = new ArrayList<>();
+        while (ident instanceof DictionaryEntryCall) {
+            indexArray.add(((DictionaryEntryCall) ident).getValue());
+            ident = ((DictionaryEntryCall) ident).getKey();
+        }
+
+        Collections.reverse(indexArray);
+        indexArray.add(firstIndex);
+        Object list = environment.getVariable(((IdentifierNode) ident).getName(), "global").getValue();
+
+        for (int i = 0; i < indexArray.size() - 1; i++) {
+            Object indexI = ((IdentifierNode) indexArray.get(i)).getName();
+
+            if (list instanceof List<?>) {
+                // Если текущий уровень - список
+                List<Object> listNe = (List<Object>) list;
+
+                int index = Integer.parseInt((String) indexI);
+
+                list = listNe.get(index);
+            } else if (list instanceof LinkedHashMap<?, ?>) {
+                // Если текущий уровень - словарь
+                LinkedHashMap<Object, Object> map = (LinkedHashMap<Object, Object>) list;
+
+
+                String mapKey = (String) indexI;
+
+                list = map.get(mapKey);
+            } else {
+                throw new IllegalArgumentException("Invalid structure: neither list nor map at path index " + key);
+            }
+
+//            if (canConvertToInt((String) indexI)) {
+//                Object nested = list.get(Integer.parseInt((String) indexI));
+//                if (nested instanceof List<?>) {
+//                    list = (List<Object>) nested;
+//                } else if () {
+//
+//                } else {
+//                    throw new IllegalArgumentException("Invalid structure: expected a nested list at index " + indexI);
+//                }
+//            }
+
+        }
+        Object newValue = null;
         if (this.initializer instanceof LiteralNode) {
-            environment.addVariable(this.variableName.getName(), ((LiteralNode) this.initializer).getValue(), "global");
+            newValue =((LiteralNode) this.initializer).getValue();
         } else if (this.initializer instanceof ListNode) {
-            environment.addVariable(this.variableName.getName(), ((ListNode) this.initializer).toValueList(), "global");
+            newValue =((ListNode) this.initializer).toValueList();
         } else if (this.initializer instanceof ExpressionNode) {
             if (((ExpressionNode) this.initializer).getLeftOp() instanceof ListNode &&
                     ((ExpressionNode) this.initializer).getRightOp() instanceof ListNode) {
@@ -838,62 +1435,62 @@ class VariableDeclarationNode extends DeclarationNode {
                 if (environment.getVariable(((IdentifierNode) ((ExpressionNode) this.initializer).getLeftOp()).getName(), "global").getValue() instanceof List<?>) {
                     if (((ExpressionNode) this.initializer).getRightOp() instanceof IdentifierNode) {
                         if (environment.getVariable(((IdentifierNode) ((ExpressionNode) this.initializer).getRightOp()).getName(), "global").getValue() instanceof List<?>) {
-                            environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                            newValue =((ExpressionNode) this.initializer).executeConcat(environment);
                         }
                     } else if (((ExpressionNode) this.initializer).getRightOp() instanceof ListNode) {
-                        environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                        newValue = ((ExpressionNode) this.initializer).executeConcat(environment);
                     }
                 } else if (environment.getVariable(((IdentifierNode) ((ExpressionNode) this.initializer).getLeftOp()).getName(), "global").getValue() instanceof LinkedHashMap<?, ?>) {
                     if (((ExpressionNode) this.initializer).getRightOp() instanceof IdentifierNode) {
                         if (environment.getVariable(((IdentifierNode) ((ExpressionNode) this.initializer).getRightOp()).getName(), "global").getValue() instanceof LinkedHashMap<?, ?>) {
-                            environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                            newValue =((ExpressionNode) this.initializer).executeConcat(environment);
                         }
                     } else if (((ExpressionNode) this.initializer).getRightOp() instanceof DictionaryNode) {
-                        environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                        newValue = ((ExpressionNode) this.initializer).executeConcat(environment);
                     }
                 } else {
-                    environment.addVariable(this.variableName.getName(), ((LiteralNode) ((ExpressionNode) this.initializer).executeExpressions(environment)).getValue(), "global");
+                    newValue =((LiteralNode) ((ExpressionNode) this.initializer).executeExpressions(environment)).getValue();
                 }
             }  else if (((ExpressionNode) this.initializer).getLeftOp() instanceof ListNode) {
                 if (((ExpressionNode) this.initializer).getRightOp() instanceof IdentifierNode) {
                     if (environment.getVariable(((IdentifierNode) ((ExpressionNode) this.initializer).getRightOp()).getName(), "global").getValue() instanceof List<?>) {
-                        environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                        newValue = ((ExpressionNode) this.initializer).executeConcat(environment);
                     }
                 } else if (((ExpressionNode) this.initializer).getRightOp() instanceof ListNode) {
-                    environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                    newValue =((ExpressionNode) this.initializer).executeConcat(environment);
                 }
             } else if (((ExpressionNode) this.initializer).getLeftOp() instanceof ExpressionNode) {
                 if (((ExpressionNode) this.initializer).getRightOp() instanceof IdentifierNode) {
                     if (environment.getVariable(((IdentifierNode) ((ExpressionNode) this.initializer).getRightOp()).getName(), "global").getValue() instanceof List<?>) {
-                        environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                        newValue = (((ExpressionNode) this.initializer).executeConcat(environment));
                     } else if (environment.getVariable(((IdentifierNode) ((ExpressionNode) this.initializer).getRightOp()).getName(), "global").getValue() instanceof LinkedHashMap<?, ?>) {
-                        environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                        newValue =((ExpressionNode) this.initializer).executeConcat(environment);
                     }
                 } else if (((ExpressionNode) this.initializer).getRightOp() instanceof ListNode) {
-                    environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                    newValue = ((ExpressionNode) this.initializer).executeConcat(environment);
                 }  else if (((ExpressionNode) this.initializer).getRightOp() instanceof DictionaryNode) {
-                    environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                    newValue =((ExpressionNode) this.initializer).executeConcat(environment);
                 }
             }  else if (((ExpressionNode) this.initializer).getLeftOp() instanceof DictionaryNode) {
                 if (((ExpressionNode) this.initializer).getRightOp() instanceof IdentifierNode) {
                     if (environment.getVariable(((IdentifierNode) ((ExpressionNode) this.initializer).getRightOp()).getName(), "global").getValue() instanceof LinkedHashMap<?, ?>) {
-                        environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                        newValue = ((ExpressionNode) this.initializer).executeConcat(environment);
                     }
                 } else if (((ExpressionNode) this.initializer).getRightOp() instanceof DictionaryNode) {
-                    environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                    newValue =((ExpressionNode) this.initializer).executeConcat(environment);
                 }
             }  else if (((ExpressionNode) this.initializer).getLeftOp() instanceof ExpressionNode) {
                 if (((ExpressionNode) this.initializer).getRightOp() instanceof IdentifierNode) {
-                    System.out.println(((ExpressionNode) this.initializer).getRightOp());
+//                    System.out.println(((ExpressionNode) this.initializer).getRightOp());
 
                     if (environment.getVariable(((IdentifierNode) ((ExpressionNode) this.initializer).getRightOp()).getName(), "global").getValue() instanceof LinkedHashMap<?, ?>) {
-                        environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                        newValue =((ExpressionNode) this.initializer).executeConcat(environment);
                     }
                 } else if (((ExpressionNode) this.initializer).getRightOp() instanceof DictionaryNode) {
-                    environment.addVariable(this.variableName.getName(), (((ExpressionNode) this.initializer).executeConcat(environment)), "global");
+                    newValue =((ExpressionNode) this.initializer).executeConcat(environment);
                 }
             } else {
-                environment.addVariable(this.variableName.getName(), ((LiteralNode) ((ExpressionNode) this.initializer).executeExpressions(environment)).getValue(), "global");
+                newValue =((LiteralNode) ((ExpressionNode) this.initializer).executeExpressions(environment)).getValue();
             }
         } else if (this.initializer instanceof DictionaryNode) {
             environment.addVariable(this.variableName.getName(), ((DictionaryNode) this.initializer).toValueDictionary(), "global");
@@ -901,9 +1498,92 @@ class VariableDeclarationNode extends DeclarationNode {
             environment.addVariable(this.variableName.getName(), environment.getVariable(((IdentifierNode) this.initializer).getName(), "global").getValue(), "global");
         } else if (this.initializer instanceof FunctionCall) {
             environment.addVariable(this.variableName.getName(), ((FunctionCall) this.initializer).executeInput(environment), "global");
+        } else if (this.initializer instanceof DictionaryNode) {
+            newValue =((DictionaryNode) this.initializer).toValueDictionary();
         }
-        System.out.println(environment.getVariable(this.variableName.getName(), "global"));
+        //else if (this.initializer instanceof IdentifierNode) {
+        //      newValue =environment.getVariable(((IdentifierNode) this.initializer).getName(), "global").getValue();
+        //  }
+
+        // Изменяем значение на последнем уровне
+        Object lastIndex = ((IdentifierNode) indexArray.get(indexArray.size() - 1)).getName();
+        if (list instanceof List<?>) {
+            // Изменяем значение в списке
+            List<Object> listNe = (List<Object>) list;
+
+            int index = Integer.parseInt((String) lastIndex);
+
+            listNe.set(index, newValue);
+        } else if (list instanceof LinkedHashMap<?, ?>) {
+            // Изменяем значение в словаре
+            Map<Object, Object> map = (LinkedHashMap<Object, Object>) list;
+
+            String mapKey = (String) lastIndex;
+
+            map.put(mapKey, newValue);
+        } else {
+            throw new IllegalArgumentException("Invalid structure: cannot update value at path");
+        }
+//        list.set(lastIndex, newValue);
+//        System.out.println("---------------------------");
+//        System.out.println(key);
+//        System.out.println(ident);
+//        System.out.println(indexArray);
+//        System.out.println(list);
+//        System.out.println(environment.getVariable(((IdentifierNode) ident).getName(), "global").getValue());
+//        System.out.println("---------------------------");
+        return null;
     }
+
+    // Преобразование в изменяемый список
+    @SuppressWarnings("unchecked")
+    private static List<Object> makeMutable(List<?> original) {
+        return original.stream()
+                .map(item -> item instanceof List<?> ? makeMutable((List<?>) item) : item)
+                .collect(java.util.stream.Collectors.toList());
+    }
+
+
+//    public Object recursionEntry(Environment environment) {
+//        String varName = ((IdentifierNode) dictionaryEntryCall.getKey()).getName();
+//        Variable var = environment.getVariable(varName, "global");
+//        Object varValue = var.getValue();
+//        Object newValue = null;
+//        if (this.initializer instanceof LiteralNode) {
+//            newValue =((LiteralNode) this.initializer).getValue();
+//        } else if (this.initializer instanceof ListNode) {
+//            newValue =((ListNode) this.initializer).toValueList();
+//        } else if (this.initializer instanceof ExpressionNode) {
+//            newValue =((LiteralNode) ((ExpressionNode) this.initializer).executeExpressions(environment)).getValue();
+//        } else if (this.initializer instanceof DictionaryNode) {
+//            newValue =((DictionaryNode) this.initializer).toValueDictionary();
+//        } else if (this.initializer instanceof IdentifierNode) {
+//            newValue =environment.getVariable(((IdentifierNode) this.initializer).getName(), "global").getValue();
+//        }
+//
+//        if (varValue instanceof List<?>) {
+//            int index = 0;
+//            if (this.dictionaryEntryCall.getValue() instanceof LiteralNode) {
+//                index = (int) ((LiteralNode) this.dictionaryEntryCall.getValue()).getValue();
+//            } else if (this.dictionaryEntryCall.getValue() instanceof ExpressionNode) {
+//                index = (int) ((LiteralNode) ((ExpressionNode) this.dictionaryEntryCall.getValue()).executeExpressions(environment)).getValue();
+//            } else if (this.dictionaryEntryCall.getValue() instanceof IdentifierNode) {
+//                if (environment.haveVariable(((IdentifierNode) this.dictionaryEntryCall.getValue()).getName(), "global")) {
+//                    index = (int) environment.getVariable(((IdentifierNode) this.dictionaryEntryCall.getValue()).getName(), "global").getValue();
+//                } else {
+//                    System.out.println(environment.haveVariable(((IdentifierNode) this.dictionaryEntryCall.getValue()).getName(), "global"));
+//                    System.out.println(((IdentifierNode) this.dictionaryEntryCall.getValue()).getName());
+//                    index = ((IdentifierNode) this.dictionaryEntryCall.getValue()).getValue();
+//                }
+//
+//            }
+//            List<?> list = (List<?>) varValue;
+//            @SuppressWarnings("unchecked")
+//            List<Object> mutableList = (List<Object>) list;
+//            mutableList.set(index, newValue);
+//            environment.updateVariable(varName, mutableList, "global");
+//        }
+//    }
 }
 
 class IdentifierNode extends Node {
@@ -980,12 +1660,24 @@ class FunctionDeclarationNode extends DeclarationNode {
 //        addChild(parameters); // Добавляем параметры в дочерние узлы
 
         addChild(functionBody); // Добавляем body в дочерние узлы
-
-
     }
 
     @Override
     public void execute(Environment environment) {
+        String funcName = ((IdentifierNode) this.header.getChildren().get(0)).getName();
+        String lastScopeType = environment.getScopeType();
+        environment.setScopeType(funcName);
+        for (int i = 0; i < this.header.getChildren().get(1).getChildren().size(); i++) {
+            String paramName = ((VariableDeclarationNode) this.header.getChildren().get(1).getChildren().get(i)).variableName.getName();
+            environment.addVariable(paramName, null, funcName);
+        }
+        List<Node> functionNodeArray = new ArrayList<>();
+        functionNodeArray.add(this.header);
+        functionNodeArray.add(this.functionBody);
+        BlockNode function = new BlockNode(functionNodeArray, "function");
+        environment.setScopeType(lastScopeType);
+        environment.addVariable(funcName, function, "global");
+
     }
 
     public IdentifierNode getName() {
@@ -1155,9 +1847,9 @@ class ForLoopNode extends StatementNode {
             if (environment.getVariable(((IdentifierNode) this.start.getChildren().get(0)).getName(), "global").getValue() instanceof List<?>) {
                 List<Object> array = (List<Object>) environment.getVariable(((IdentifierNode) this.start.getChildren().get(0)).getName(), "global").getValue();
                 environment.addVariable(this.name, null, "global");
-                System.out.println("------------");
-                System.out.println(this.name);
-                System.out.println("------------");
+//                System.out.println("------------");
+//                System.out.println(this.name);
+//                System.out.println("------------");
                 for (int i = 0; i < array.size(); i++) {
                     environment.updateVariable(this.name, array.get(i), "global");
                     for (int j = 0; j < this.body.getChildren().size(); j++) {
@@ -1186,6 +1878,23 @@ class ReturnNode extends StatementNode {
 
     @Override
     public void execute(Environment environment) {
+//        System.out.println(this.expression);
+//        Object element = this.expression.getChildren().get(0);
+        Object element = this.expression;
+        Object re = null;
+        if (element instanceof IdentifierNode) {
+            re = environment.getVariable(((IdentifierNode) element).getName(), "global").getValue();
+        } else if (element instanceof LiteralNode) {
+            re = ((LiteralNode) element).getValue();
+        }  else if (element instanceof ExpressionNode) {
+            re = ((LiteralNode) ((ExpressionNode) element).executeExpressions(environment)).getValue();
+        } else if (element instanceof DictionaryEntryCall) {
+            re = ((DictionaryEntryCall) element).getValueIndex(environment);
+        } else if (element instanceof FunctionCall) {
+            re = ((FunctionCall) element).executeGet(environment);
+        }
+        environment.addVariable("return" + environment.getScopeType(), re, environment.getScopeType());
+//        System.out.println(this.expression.getChildren().get(0) instanceof DictionaryEntryNode);
     }
 }
 
@@ -1209,6 +1918,7 @@ class PrintNode extends StatementNode {
         for (int i = 0; i < this.expression.getChildren().size(); i++) {
             Object element = this.expression.getChildren().get(i);
             if (element instanceof IdentifierNode) {
+//                environment.printAllVariables();
                 System.out.println(environment.getVariable(((IdentifierNode) element).getName(), "global").getValue());
             } else if (element instanceof LiteralNode) {
                 System.out.println(((LiteralNode) element).getValue());
@@ -1217,8 +1927,9 @@ class PrintNode extends StatementNode {
                 System.out.println(((LiteralNode) ((ExpressionNode) element).executeExpressions(environment)).getValue());
             } else if (element instanceof DictionaryEntryCall) {
                 System.out.println(((DictionaryEntryCall) element).getValueIndex(environment));
+            } else if (element instanceof FunctionCall) {
+                System.out.println(((FunctionCall) element).executeGet(environment));
             }
-
         }
 //        System.out.println(this.expression.getChildren().get(0) instanceof DictionaryEntryNode);
     }
@@ -1411,31 +2122,96 @@ class DictionaryEntryCall extends Node {
         }
     }
 
-    public Object getValueIndex(Environment environment) {
-        if (environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue() instanceof List<?>) {
+    public Object getValueIndexWithVariable(Object obj, Environment environment) {
+        if (obj instanceof List<?>) {
             if (canConvertToInt(((IdentifierNode) this.value).getName())) {
-                return ((List<?>) environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue()).get(Integer.parseInt(((IdentifierNode) this.value).getName()));
+                return ((List<?>) obj).get(Integer.parseInt(((IdentifierNode) this.value).getName()));
             } else {
                 if (environment.getVariable(((IdentifierNode) this.value).getName(), "global").getValue() instanceof Integer) {
-                    return ((List<?>) environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue()).get((int) environment.getVariable(((IdentifierNode) this.value).getName(), "global").getValue());
+                    return ((List<?>) obj).get((int) environment.getVariable(((IdentifierNode) this.value).getName(), "global").getValue());
                 }
             }
-        } else if (environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue() instanceof LinkedHashMap<?, ?>) {
+        } else if (obj instanceof LinkedHashMap<?, ?>) {
             if (canConvertToInt(((IdentifierNode) this.value).getName())) {
-                LinkedHashMap<?, ?> dictionary = (LinkedHashMap<?, ?>) environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue();
-                ArrayList<?> array = (ArrayList<?>) dictionary.values();
+                LinkedHashMap<?, ?> dictionary = (LinkedHashMap<?, ?>) obj;
+                ArrayList<?> array = new ArrayList<>(dictionary.values());
                 if (Integer.parseInt(((IdentifierNode) this.value).getName()) < 0 || Integer.parseInt(((IdentifierNode) this.value).getName()) >= array.size()) {
                     throw new IndexOutOfBoundsException("Индекс вне границ словаря.");
                 }
                 return array.get(Integer.parseInt(((IdentifierNode) this.value).getName()));
 //                return environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue().
             } else {
-                if (environment.getVariable(((IdentifierNode) this.value).getName(), "global").getValue() instanceof Integer) {
-                    return ((List<?>) environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue()).get((int) environment.getVariable(((IdentifierNode) this.value).getName(), "global").getValue());
-                }
+                LinkedHashMap<?, ?> dictionary = (LinkedHashMap<?, ?>) obj;
+                return dictionary.get(((IdentifierNode) this.value).getName());
             }
         }
         throw new ParseException("Bad type in index.");
+    }
+
+    public Object getValueIndex(Environment environment) {
+        Object obj = null;
+        if (this.key instanceof DictionaryEntryCall) {
+            obj = ((DictionaryEntryCall) this.key).getValueIndex(environment);
+        }
+        if (obj == null) {
+            obj = environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue();
+        }
+        return getValueIndexWithVariable(obj, environment);
+// <<<<<<< parser2
+//         if (environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue() instanceof List<?>) {
+//             if (canConvertToInt(((IdentifierNode) this.value).getName())) {
+//                 return ((List<?>) environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue()).get(Integer.parseInt(((IdentifierNode) this.value).getName()));
+//             } else {
+//                 if (environment.getVariable(((IdentifierNode) this.value).getName(), "global").getValue() instanceof Integer) {
+//                     return ((List<?>) environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue()).get((int) environment.getVariable(((IdentifierNode) this.value).getName(), "global").getValue());
+//                 }
+//             }
+//         } else if (environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue() instanceof LinkedHashMap<?, ?>) {
+//             if (canConvertToInt(((IdentifierNode) this.value).getName())) {
+//                 LinkedHashMap<?, ?> dictionary = (LinkedHashMap<?, ?>) environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue();
+//                 ArrayList<?> array = (ArrayList<?>) dictionary.values();
+// =======
+//         Object obj = null;
+//         if (this.key instanceof DictionaryEntryCall) {
+//             obj = ((DictionaryEntryCall) this.key).getValueIndex(environment);
+//         }
+//         if (obj == null) {
+//             obj = environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue();
+//         }
+//         return getValueIndexWithVariable(obj, environment);
+//     }
+
+//     public Object getValueIndexWithVariable(Object obj, Environment environment) {
+//         if (obj instanceof List<?>) {
+//             if (canConvertToInt(((IdentifierNode) this.value).getName())) {
+//                 return ((List<?>) obj).get(Integer.parseInt(((IdentifierNode) this.value).getName()));
+//             } else {
+//                 if (environment.getVariable(((IdentifierNode) this.value).getName(), "global").getValue() instanceof Integer) {
+//                     return ((List<?>) obj).get((int) environment.getVariable(((IdentifierNode) this.value).getName(), "global").getValue());
+//                 }
+//             }
+//         } else if (obj instanceof LinkedHashMap<?, ?>) {
+//             if (canConvertToInt(((IdentifierNode) this.value).getName())) {
+//                 LinkedHashMap<?, ?> dictionary = (LinkedHashMap<?, ?>) obj;
+//                 ArrayList<?> array = new ArrayList<>(dictionary.values());
+// >>>>>>> inter
+//                 if (Integer.parseInt(((IdentifierNode) this.value).getName()) < 0 || Integer.parseInt(((IdentifierNode) this.value).getName()) >= array.size()) {
+//                     throw new IndexOutOfBoundsException("Индекс вне границ словаря.");
+//                 }
+//                 return array.get(Integer.parseInt(((IdentifierNode) this.value).getName()));
+// //                return environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue().
+//             } else {
+// <<<<<<< parser2
+//                 if (environment.getVariable(((IdentifierNode) this.value).getName(), "global").getValue() instanceof Integer) {
+//                     return ((List<?>) environment.getVariable(((IdentifierNode) this.key).getName(), "global").getValue()).get((int) environment.getVariable(((IdentifierNode) this.value).getName(), "global").getValue());
+//                 }
+// =======
+//                 LinkedHashMap<?, ?> dictionary = (LinkedHashMap<?, ?>) obj;
+//                 return dictionary.get(((IdentifierNode) this.value).getName());
+// >>>>>>> inter
+//             }
+//         }
+//         throw new ParseException("Bad type in index.");
     }
 
     @Override
@@ -1492,8 +2268,120 @@ class FunctionCall extends Node {
         return "Function call: ";
     }
 
+//    @Override
+//    public void execute(Environment environment) {
+//        String funcName = ((IdentifierNode) this.funcIdentifier).getName();
+//        BlockNode functionNode = (BlockNode) environment.getVariable(funcName, "global").getValue();
+////        System.out.println(param.getChildren());
+//        for (int i = 0; i < functionNode.getChildren().get(0).getChildren().get(1).getChildren().size(); i++) {
+//            String paramName = ((VariableDeclarationNode) functionNode.getChildren().get(0).getChildren().get(1).getChildren().get(i)).variableName.getName();
+//            environment.updateVariable(paramName, ((LiteralNode) param.getChildren().get(i)).getValue() , funcName);
+//        }
+//
+//        environment.setScopeType(funcName);
+//        for (int j = 0; j < functionNode.getChildren().get(1).getChildren().size(); j++) {
+//            functionNode.getChildren().get(1).getChildren().get(j).execute(environment);
+////            System.out.println(functionNode.getChildren().get(1).getChildren());
+//            if (environment.haveVariable("return" + environment.getScopeType(), environment.getScopeType())) {
+//                return;
+//            }
+//        }
+//        environment.setScopeType("global");
+//    }
+
     @Override
     public void execute(Environment environment) {
+        String funcNameInit = ((IdentifierNode) this.funcIdentifier).getName();
+        String funcName = ((IdentifierNode) (((BlockNode) environment.getVariable(funcNameInit, "global").getValue()).getChildren().get(0).getChildren().get(0))).getName();
+//        System.out.println(funcName2.getChildren().get(0));
+        BlockNode functionNode = (BlockNode) environment.getVariable(funcNameInit, "global").getValue();
+//        System.out.println(param.getChildren());
+        String lastScopeType = environment.getScopeType();
+        environment.setScopeType(funcName);
+        for (int i = 0; i < functionNode.getChildren().get(0).getChildren().get(1).getChildren().size(); i++) {
+            String paramName = ((VariableDeclarationNode) functionNode.getChildren().get(0).getChildren().get(1).getChildren().get(i)).variableName.getName();
+//            System.out.println(param.getChildren().get(i));
+            if (param.getChildren().get(i) instanceof LiteralNode) {
+                environment.updateVariable(paramName, ((LiteralNode) param.getChildren().get(i)).getValue() , funcName);
+            } else if (param.getChildren().get(i) instanceof IdentifierNode) {
+                environment.setScopeType(lastScopeType);
+//                if (environment.getVariable(((IdentifierNode) param.getChildren().get(i)).getName(), "global") == null) {
+//                    System.out.println("no global");
+//                }
+                Object value = environment.getVariable(((IdentifierNode) param.getChildren().get(i)).getName(), "global").getValue();
+                environment.setScopeType(funcName);
+                environment.updateVariable(paramName, value , funcName);
+            }
+
+        }
+//
+//        environment.setScopeType(funcName);
+
+        for (int j = 0; j < functionNode.getChildren().get(1).getChildren().size(); j++) {
+            functionNode.getChildren().get(1).getChildren().get(j).execute(environment);
+            if (environment.haveVariable("return" + environment.getScopeType(), environment.getScopeType())) {
+                Object returning = environment.getVariable("return" + environment.getScopeType(), environment.getScopeType()).getValue();
+                environment.setScopeType(lastScopeType);
+                environment.removeVariable("return" + environment.getScopeType(), environment.getScopeType());
+                return;
+            }
+        }
+        environment.setScopeType(lastScopeType);
+        return;
+    }
+
+
+    public Object executeGet(Environment environment) {
+        String funcNameInit = ((IdentifierNode) this.funcIdentifier).getName();
+        String funcName = ((IdentifierNode) (((BlockNode) environment.getVariable(funcNameInit, "global").getValue()).getChildren().get(0).getChildren().get(0))).getName();
+
+//        TODO: сделай
+//        Environment localEnv = environment.deepCopy();
+//        Раскоменти и замени внутри этой хуйни все на localEnv,
+//        тут прикол в том чтоб после вполенения проверить если внутри добавилась новая функия
+//        добавить все от нее внутрь нашего env
+
+//        System.out.println(funcName2.getChildren().get(0));
+        BlockNode functionNode = (BlockNode) environment.getVariable(funcNameInit, "global").getValue();
+//        System.out.println(param.getChildren());
+        String lastScopeType = environment.getScopeType();
+
+        environment.setScopeType(funcName);
+
+//        environment.setScopeType(funcName);
+
+        for (int i = 0; i < functionNode.getChildren().get(0).getChildren().get(1).getChildren().size(); i++) {
+            String paramName = ((VariableDeclarationNode) functionNode.getChildren().get(0).getChildren().get(1).getChildren().get(i)).variableName.getName();
+//            System.out.println(param.getChildren().get(i));
+            if (param.getChildren().get(i) instanceof LiteralNode) {
+                environment.updateVariable(paramName, ((LiteralNode) param.getChildren().get(i)).getValue() , funcName);
+            } else if (param.getChildren().get(i) instanceof IdentifierNode) {
+                    environment.setScopeType(lastScopeType);
+
+//                if (environment.getVariable(((IdentifierNode) param.getChildren().get(i)).getName(), "global") == null) {
+//                    System.out.println("no global");
+//                }
+                Object value = environment.getVariable(((IdentifierNode) param.getChildren().get(i)).getName(), "global").getValue();
+
+                environment.setScopeType(funcName);
+                environment.updateVariable(paramName, value , funcName);
+            }
+
+        }
+//
+//        environment.setScopeType(funcName);
+
+        for (int j = 0; j < functionNode.getChildren().get(1).getChildren().size(); j++) {
+            functionNode.getChildren().get(1).getChildren().get(j).execute(environment);
+            if (environment.haveVariable("return" + environment.getScopeType(), environment.getScopeType())) {
+                Object returning = environment.getVariable("return" + environment.getScopeType(), environment.getScopeType()).getValue();
+                environment.removeVariable("return" + environment.getScopeType(), environment.getScopeType());
+                environment.setScopeType(lastScopeType);
+                return returning;
+            }
+        }
+        environment.setScopeType(lastScopeType);
+        return null;
     }
 
     public Object executeInput(Environment environment) {
@@ -1578,12 +2466,61 @@ class Parser {
 
     public ProgramNode parseProgram() {
         while (current < tokens.size()) {
-            this.scope = "global";
             System.out.println(getCurrentToken().code);
+            this.scope = "global";
+//            System.out.println(getCurrentToken().code);
             if (getCurrentToken().code == TokenCode.VAR) {
                 program.addStatement(parseDeclaration());
             } else if (getCurrentToken().code == TokenCode.IDENTIFIER) {
-                program.addStatement(parseDeclaration());
+                Identifier identifierToken = (Identifier) getCurrentToken();
+                boolean funcFlag = false;
+                advance();
+                if (getCurrentToken().code == TokenCode.LPAREN) {
+                    funcFlag = true;
+                }
+                rewind();
+                System.out.println(this.symbolTable.hasFunctionWithName(identifierToken.identifier));
+//            if (program.isFunction(new IdentifierNode(identifierToken.identifier)) != null) {
+                if (this.symbolTable.hasFunctionWithName(identifierToken.identifier) || funcFlag) {
+                    System.out.println("Find");
+                    List<Node> parameters = new ArrayList<>();
+                    System.out.println(identifierToken.identifier + "_" + this.scope);
+                    this.symbolTable.addNumUse(identifierToken.identifier + "_" + this.scope);
+                    advance();
+                    if (getCurrentToken().code == TokenCode.LPAREN) {
+                        advance();
+                    } else {
+                        IdentifierNode re = new IdentifierNode(identifierToken.identifier);
+                        advance();
+                        program.addStatement(re);
+                    }
+                    if (getCurrentToken().code != TokenCode.RPAREN) {
+                        Node ne = parseCondition();
+                        System.out.println(ne);
+                        parameters.add(ne);
+
+                        while (getCurrentToken().code == TokenCode.COMMA) {
+                            advance(); // Пропускаем запятую
+                            parameters.add(parseCondition());
+                        }
+                    }
+
+
+                    BlockNode param = new BlockNode(parameters, "param");
+                    System.out.println("getCurrentToken().code " + getCurrentToken().code);
+                    if (getCurrentToken().code != TokenCode.RPAREN) {
+                        System.out.println(getCurrentToken().code);
+                        throw new ParseException("Expected ')', found: " + getCurrentToken().code);
+                    }
+
+                    FunctionCall re = new FunctionCall(new IdentifierNode(identifierToken.identifier), param);
+                    advance();
+                    program.addStatement(re);
+//            } else if (program.isVariable(new IdentifierNode(identifierToken.identifier)) != null) {
+                } else {
+                    program.addStatement(parseDeclaration());
+                }
+
             } else if (getCurrentToken().code == TokenCode.PRINT) {
                 program.addStatement(parsePrint());
             } else if (getCurrentToken().code == TokenCode.FOR) {
@@ -1609,6 +2546,7 @@ class Parser {
             }  else if (getCurrentToken().code == TokenCode.SEMICOLON) {
                 current++;
             } else {
+                this.symbolTable.printTable();
                 throw new ParseException("Incorrect use of " + getCurrentToken().code +  " in line: " + getCurrentToken().span.lineNum);
             }
 //            }else if (getCurrentToken().code == TokenCode.END) {
@@ -1641,7 +2579,28 @@ class Parser {
             throw new ParseException("Incorrect use of " + getCurrentToken().code +  " in line: " + getCurrentToken().span.lineNum);
         }
         Identifier variableName = (Identifier) getCurrentToken();
+        Node init = new IdentifierNode(variableName.identifier);
+        boolean dictFlag = false;
         advance(); // Пропускаем идентификатор
+        if (!flagVarDeclare) {
+            if (getCurrentToken().code == TokenCode.LBRACKET || getCurrentToken().code == TokenCode.DOT) {
+                dictFlag = true;
+                while (getCurrentToken().code == TokenCode.LBRACKET || getCurrentToken().code == TokenCode.DOT) {
+                    if (getCurrentToken().code == TokenCode.LBRACKET){
+                        advance();  // Переходим к следующему токену
+                        init = getEntry(init);  // Получаем узел для вложенного элемента
+                        advance();
+                    } else {
+                        advance();  // Переходим к следующему токену
+                        init = getEntry(init);
+                    }
+
+                }
+//                return new VariableDeclarationNode((DictionaryEntryCall) init, new IdentifierNode("2"));
+            }
+        }
+
+
 //        System.out.println(this.symbolTable.getSymbol(variableName.identifier + "_" + this.scope) != null);
 //        if (!flagVarDeclare && this.symbolTable.getSymbol(variableName.identifier + "_" + this.scope) != null) {
 //            this.symbolTable.addNumUse(variableName.identifier + "_" + this.scope);
@@ -1672,11 +2631,11 @@ class Parser {
 
             if (getCurrentToken().code == TokenCode.FUNC) {
                 advance(); // Пропускаем 'func'
-                this.symbolTable.addSymbol(variableName.identifier + "_" + this.scope, "function", 0, this.scope, -1, null);
+                this.symbolTable.addSymbol(variableName.identifier + "_" + this.scope, "function", 0, this.scope, -1, null, 1);
 
                 this.scope = variableName.identifier;
 
-                IdentifierNode init = new IdentifierNode(variableName.identifier);
+                init = new IdentifierNode(variableName.identifier);
 //            String functionName = functionToken.identifier;
 
 
@@ -1700,7 +2659,6 @@ class Parser {
                     }
                 }
 
-
                 BlockNode param = new BlockNode(parameters, "param");
                 if (getCurrentToken().code != TokenCode.RPAREN) {
                     throw new ParseException("Expected ')', found: " + getCurrentToken());
@@ -1711,9 +2669,7 @@ class Parser {
                 if (getCurrentToken().code == TokenCode.IMPLICATION) {
                     advance(); // Пропускаем '=>'
                     Node functionBody = parseStatement();
-                    if (getCurrentToken().code != TokenCode.SEMICOLON) {
-                        throw new ParseException("Expected ';', found: " + getCurrentToken());
-                    }
+
                     List<Node> headerL = new ArrayList<>();
                     headerL.add(init);
                     headerL.add(param);
@@ -1722,12 +2678,13 @@ class Parser {
                     List<Node> bodyBlock = new ArrayList<>();
                     bodyBlock.add(functionBody);
                     BlockNode body = new BlockNode(bodyBlock, "body");
-                    advance(); // Пропускаем 'end'
+//                    advance(); // Пропускаем 'end'
                     FunctionDeclarationNode fincRe = new FunctionDeclarationNode(headerBlock, body);
                     IdentifierNode variableIdentifier = new IdentifierNode(variableName.identifier);
                     if (flagVarDeclare) {
-                        this.symbolTable.addSymbol(variableName.identifier + "_" + this.scope, "var", 0, this.scope, -1, null);
+                        this.symbolTable.addSymbol(variableName.identifier + "_" + this.scope, "var", 0, this.scope, -1, null, 1);
                     }
+//                    return fincRe;
                     return new VariableDeclarationNode(variableIdentifier, fincRe, "function");
                 } else {
                     throw new ParseException("Expected '>=', found: " + getCurrentToken().code);
@@ -1746,7 +2703,12 @@ class Parser {
             }
             IdentifierNode variableIdentifier = new IdentifierNode(variableName.identifier);
             if (flagVarDeclare) {
-                this.symbolTable.addSymbol(variableName.identifier + "_" + this.scope, "var", this.len, this.scope, -1, initializer);
+                if (initializer instanceof FunctionCall) {
+                    this.symbolTable.addSymbol(variableName.identifier + "_" + this.scope, "undefined", this.len, this.scope, -1, initializer);
+                } else {
+                    this.symbolTable.addSymbol(variableName.identifier + "_" + this.scope, "var", this.len, this.scope, -1, initializer);
+
+                }
             }
             String type = "expression";
             if (initializer instanceof ListNode) {
@@ -1756,7 +2718,12 @@ class Parser {
             } else if (initializer instanceof DictionaryNode) {
                 type = "dictionary";
             }
-            return new VariableDeclarationNode(variableIdentifier, initializer, type);
+            if (dictFlag) {
+                return new VariableDeclarationNode((DictionaryEntryCall) init, initializer, type);
+            } else {
+                return new VariableDeclarationNode(variableIdentifier, initializer, type);
+            }
+
         } else {
             IdentifierNode variableIdentifier = new IdentifierNode(variableName.identifier);
             return new VariableDeclarationNode(variableIdentifier, null, "empty");
@@ -1825,6 +2792,7 @@ class Parser {
     }
 
     private Node parseFunction() {
+        System.out.println("FUNC INIT");
         if (getCurrentToken().code == TokenCode.FUNC) {
             advance(); // Пропускаем 'func'
 
@@ -1835,7 +2803,8 @@ class Parser {
             if (this.symbolTable.getSymbol(functionToken.identifier + "_" + this.scope) != null) {
                 throw new ParseException("Line: " + getCurrentToken().span.lineNum + " | The function named '" + functionToken.identifier +  "' has already been declared");
             }
-            this.symbolTable.addSymbol(functionToken.identifier + "_" + this.scope, "function", 0, "global", -1, null);
+            this.symbolTable.addSymbol(functionToken.identifier + "_" + this.scope, "function", 0, this.scope, -1, null);
+            String lastScope = this.scope;
             this.scope = functionToken.identifier;
 
 
@@ -1852,18 +2821,20 @@ class Parser {
             List<Node> parameters = new ArrayList<>();
             if (getCurrentToken().code != TokenCode.RPAREN) {
                 VariableDeclarationNode re = parseParameter();
-                this.symbolTable.addSymbol(re.variableName.getName() + "_" + this.scope, "param", 0, functionToken.identifier, -1, null);
+                this.symbolTable.addSymbol(re.variableName.getName() + "_" + this.scope, "param", 0, functionToken.identifier, -1, null, 10);
                 parameters.add(re);
 
                 while (getCurrentToken().code == TokenCode.COMMA) {
                     advance(); // Пропускаем запятую
                     re = parseParameter();
-                    this.symbolTable.addSymbol(re.variableName.getName() + "_" + this.scope, "param", 0, functionToken.identifier, -1, null);
+                    this.symbolTable.addSymbol(re.variableName.getName() + "_" + this.scope, "param", 0, functionToken.identifier, -1, null, 10);
                     parameters.add(re);
                 }
             }
 
-
+            System.out.println("--------------");
+            System.out.println(parameters);
+            System.out.println("---------------");
             BlockNode param = new BlockNode(parameters, "param");
             if (getCurrentToken().code != TokenCode.RPAREN) {
                 throw new ParseException("Expected ')', found: " + getCurrentToken());
@@ -1875,17 +2846,23 @@ class Parser {
                 advance(); // Пропускаем 'is'
 
                 Node functionBody = parseBlock();
+                System.out.println("Hello");
+
 
                 if (getCurrentToken().code != TokenCode.END) {
                     throw new ParseException("Expected 'end', found: " + getCurrentToken());
                 }
                 advance(); // Пропускаем 'end'
 
+
                 List<Node> headerL = new ArrayList<>();
                 headerL.add(init);
                 headerL.add(param);
                 BlockNode headerBlock = new BlockNode(headerL, "head");
-
+                if (getCurrentToken().code == TokenCode.SEMICOLON) {
+                    advance();
+                }
+                this.scope = lastScope;
                 return new FunctionDeclarationNode(headerBlock, functionBody);
             } else if (getCurrentToken().code == TokenCode.IMPLICATION) {
                 advance(); // Пропускаем '=>'
@@ -1902,6 +2879,7 @@ class Parser {
                 bodyBlock.add(functionBody);
                 BlockNode body = new BlockNode(bodyBlock, "body");
                 advance(); // Пропускаем 'end'
+                this.scope = lastScope;
                 return new FunctionDeclarationNode(headerBlock, body);
             } else {
                 throw new ParseException("Expected 'is' or '>=', found: " + getCurrentToken().code);
@@ -1948,6 +2926,8 @@ class Parser {
     private Node parseBlock() {
         List<Node> statements = new ArrayList<>();
         while (getCurrentToken().code != TokenCode.END) {
+            System.out.println("123:");
+            System.out.println(getCurrentToken().code);
             statements.add(parseStatement());
         }
 
@@ -2068,7 +3048,6 @@ class Parser {
         advance(); // Пропускаем ';'
 
         BlockNode exp = new BlockNode(expressions, "expressions");
-
         return new PrintNode(exp); // Возвращаем узел Print с выражениями
     }
 
@@ -2079,9 +3058,29 @@ class Parser {
         if (getCurrentToken().code == TokenCode.SEMICOLON){
             advance();
         }
-        while (getCurrentToken().code != TokenCode.SEMICOLON && getCurrentToken().code != TokenCode.END && getCurrentToken().code != TokenCode.ELSE) {
+
+        boolean itLambdaFunction = false;
+        int rewindNum = 0;
+        long initLineNum = getCurrentToken().span.lineNum;
+        while (getCurrentToken().span.lineNum == initLineNum || getCurrentToken().span.lineNum == initLineNum - 1) {
+            rewind();
+            rewindNum += 1;
+            if (getCurrentToken().code == TokenCode.IMPLICATION) {
+                itLambdaFunction = true;
+                break;
+            }
+        }
+
+        for (int i = 0; i < rewindNum; i++) {
             advance();
         }
+        System.out.println(itLambdaFunction);
+        if (!itLambdaFunction) {
+            while (getCurrentToken().code != TokenCode.SEMICOLON && getCurrentToken().code != TokenCode.END && getCurrentToken().code != TokenCode.ELSE) {
+                advance();
+            }
+        }
+
         return new ReturnNode(expression);
     }
 
@@ -2501,13 +3500,32 @@ class Parser {
             return expression;
         } else if (getCurrentToken().code == TokenCode.IDENTIFIER) {
             Identifier identifierToken = (Identifier) getCurrentToken();
-            if (program.isFunction(new IdentifierNode(identifierToken.identifier)) != null) {
+//            System.out.println(identifierToken.identifier);
+//            System.out.println(identifierToken.identifier);
+//            this.symbolTable.printTable();
+//            System.out.println(identifierToken.identifier);
+//            System.out.println(identifierToken.identifier);
+            boolean funcFlag = false;
+            advance();
+            if (getCurrentToken().code == TokenCode.LPAREN) {
+                funcFlag = true;
+            }
+            rewind();
+//            if (program.isFunction(new IdentifierNode(identifierToken.identifier)) != null) {
+            if (this.symbolTable.hasFunctionWithName(identifierToken.identifier) || funcFlag) {
+                System.out.println("Find");
                 List<Node> parameters = new ArrayList<>();
-//                System.out.println(identifierToken.identifier + "_" + this.scope);
-                this.symbolTable.addNumUse(identifierToken.identifier + "_" + this.scope);
+                System.out.println(identifierToken.identifier + "_" + this.scope);
+                if (!Objects.equals(identifierToken.identifier, this.scope)) {
+                    this.symbolTable.addNumUse(identifierToken.identifier + "_" + this.scope);
+                }
                 advance();
                 if (getCurrentToken().code == TokenCode.LPAREN) {
                     advance();
+                } else {
+                    IdentifierNode re = new IdentifierNode(identifierToken.identifier);
+//                    advance();
+                    return re;
                 }
                 if (getCurrentToken().code != TokenCode.RPAREN) {
                     Node ne = parseCondition();
@@ -2522,12 +3540,13 @@ class Parser {
 
 
                 BlockNode param = new BlockNode(parameters, "param");
+                System.out.println("getCurrentToken().code " + getCurrentToken().code);
                 if (getCurrentToken().code != TokenCode.RPAREN) {
-                    System.out.println(getCurrentToken().code);
                     throw new ParseException("Expected ')', found: " + getCurrentToken().code);
                 }
 
                 FunctionCall re = new FunctionCall(new IdentifierNode(identifierToken.identifier), param);
+
                 advance();
                 return re;
 //            } else if (program.isVariable(new IdentifierNode(identifierToken.identifier)) != null) {
@@ -2545,16 +3564,16 @@ class Parser {
                     // Проверка, является ли `index` числовым значением
                     if (isInteger(index)) {
                         int listLength = symbolTable.getSymbolLength(identifierToken.identifier + "_" + this.scope);
-                        if (Integer.parseInt(index) < 0 || Integer.parseInt(index) >= listLength) {
-                            throw new ParseException("Index " + index + " out of bounds for list " + identifierToken.identifier);
-                        }
+//                        if (Integer.parseInt(index) < 0 || Integer.parseInt(index) >= listLength) {
+//                            throw new ParseException("Index " + index + " out of bounds for list " + identifierToken.identifier);
+//                        }
                         indexName = this.symbolTable.getSymbolByIndex(identifierToken.identifier, Integer.parseInt(index));
                         indexName = indexName.substring(0, indexName.indexOf('_'));
                     } else {
                         // Проверка, существует ли индекс как ключ в текущей области видимости
-                        if (symbolTable.getSymbolScope(index + "_" + identifierToken.identifier) == null) {
-                            throw new ParseException("Dictionary " + this.scope + " does not contain the key " + identifierToken.identifier);
-                        }
+//                        if (symbolTable.getSymbolScope(index + "_" + identifierToken.identifier) == null) {
+//                            throw new ParseException("Dictionary " + this.scope + " does not contain the key " + identifierToken.identifier);
+//                        }
 
                     }
 
@@ -2661,6 +3680,8 @@ class Parser {
                 }
                 return new IdentifierNode(identifierToken.identifier);
             } else {
+                this.symbolTable.printTable();
+                System.out.println(identifierToken.identifier + "_" + this.scope);
                 throw new ParseException("The identifier is not declared: " + ((Identifier) getCurrentToken()).identifier + " in line " + ((Identifier) getCurrentToken()).span.lineNum);
             }
         }
@@ -2787,11 +3808,11 @@ class Parser {
             return parseDeclaration();
         } else if (getCurrentToken().code == TokenCode.IDENTIFIER) {
             return parseDeclaration();
-        } else if (getCurrentToken().code == TokenCode.RETURN) {
-            if (this.scope != "global") {
+        }  else if (getCurrentToken().code == TokenCode.RETURN) {
+//            if (this.scope != "global") {
                 return parseReturn();
-            }
-            throw new ParseException("ERROR in line: " + getCurrentToken().span.lineNum + ". Return must be used inside the function.");
+//            }
+//            throw new ParseException("ERROR in line: " + getCurrentToken().span.lineNum + ". Return must be used inside the function.");
         } else if (getCurrentToken().code == TokenCode.FUNC) {
             return parseFunction();
         } else if (getCurrentToken().code == TokenCode.READ_REAL ||
@@ -2804,6 +3825,7 @@ class Parser {
                 getCurrentToken().code == TokenCode.STRING_LITERAL) {
             return parseExpression();
         }
+        this.symbolTable.printTable();
         throw new ParseException("Unexpected statement type: " + getCurrentToken().code + " in line " + getCurrentToken().span.lineNum);
     }
 }
@@ -2818,6 +3840,12 @@ class Variable {
         this.name = name;
         this.value = value;
         this.scope = scope;
+    }
+
+    public Variable deepCopy() {
+        // Предполагаем, что value поддерживает клонирование или является неизменяемым (например, Integer, String)
+        Object copiedValue = this.value; // Если `value` нужно копировать глубже, добавьте дополнительную логику
+        return new Variable(this.name, copiedValue, this.scope);
     }
 
     public String getName() {
@@ -2861,7 +3889,14 @@ class Environment {
         return scopeType;
     }
 
+    public void setScopeType(String type) {
+        scopeType = type;
+    }
+
     public void addVariable(String name, Object value, String scopeType) {
+        if (this.scopeType != "global") {
+            scopeType = this.scopeType;
+        }
         scopedVariables.putIfAbsent(scopeType, new HashMap<>());
         Map<String, Variable> scopeVars = scopedVariables.get(scopeType);
         if (scopeVars.containsKey(name)) {
@@ -2871,7 +3906,34 @@ class Environment {
         scopeVars.put(name, new Variable(name, value, scopeType));
     }
 
+    public void removeVariable(String name, String scopeType) {
+        // Если текущая область не "глобальная", используем текущую область
+        if (!this.scopeType.equals("global")) {
+            scopeType = this.scopeType;
+        }
+
+        // Получаем переменные для указанной области видимости
+        Map<String, Variable> scopeVars = scopedVariables.get(scopeType);
+
+        // Проверяем существование переменной
+        if (scopeVars == null || !scopeVars.containsKey(name)) {
+            throw new RuntimeException("Переменная " + name + " не найдена в области " + scopeType + ".");
+        }
+
+        // Удаляем переменную
+        scopeVars.remove(name);
+
+        // Если область видимости больше не содержит переменных, удаляем область
+        if (scopeVars.isEmpty()) {
+            scopedVariables.remove(scopeType);
+        }
+    }
+
+
     public void updateVariable(String name, Object value, String scopeType) {
+        if (this.scopeType != "global") {
+            scopeType = this.scopeType;
+        }
         Map<String, Variable> scopeVars = scopedVariables.get(scopeType);
         if (scopeVars == null || !scopeVars.containsKey(name)) {
             throw new RuntimeException("Переменная " + name + " не найдена в области " + scopeType + ".");
@@ -2879,9 +3941,29 @@ class Environment {
         scopeVars.get(name).setValue(value);
     }
 
-    public Variable getVariable(String name, String scopeType) {
+    public boolean haveVariable(String name, String scopeType) {
+        if (this.scopeType != "global") {
+            scopeType = this.scopeType;
+        }
         Map<String, Variable> scopeVars = scopedVariables.get(scopeType);
         if (scopeVars == null || !scopeVars.containsKey(name)) {
+            return false;
+        }
+        return true;
+    }
+
+    public Variable getVariable(String name, String scopeType) {
+        if (this.scopeType != "global") {
+            scopeType = this.scopeType;
+        }
+
+        if (Objects.equals(name, scopeType)) {
+            scopeType = "global";
+        }
+
+        Map<String, Variable> scopeVars = scopedVariables.get(scopeType);
+        if (scopeVars == null || !scopeVars.containsKey(name)) {
+            printAllVariables();
             throw new RuntimeException("Переменная " + name + " не найдена в области " + scopeType + ".");
         }
         return scopeVars.get(name);
@@ -2904,6 +3986,46 @@ class Environment {
     public Map<String, Variable> getVariablesInScope(String scopeType) {
         return scopedVariables.getOrDefault(scopeType, new HashMap<>());
     }
+
+    public void printAllVariables() {
+        System.out.println("Environment: " + name);
+        System.out.println("Scope Type: " + scopeType);
+        System.out.println("Scoped Variables:");
+
+        for (Map.Entry<String, Map<String, Variable>> scopeEntry : scopedVariables.entrySet()) {
+            String scope = scopeEntry.getKey();
+            Map<String, Variable> variables = scopeEntry.getValue();
+            System.out.println("  Scope: " + scope);
+
+            for (Variable variable : variables.values()) {
+                System.out.println("    " + variable);
+            }
+        }
+    }
+
+    public Environment deepCopy() {
+        Environment copy = new Environment(this.name, this.scopeType);
+
+        // Копируем все области видимости и переменные
+        for (Map.Entry<String, Map<String, Variable>> scopeEntry : this.scopedVariables.entrySet()) {
+            String scope = scopeEntry.getKey();
+            Map<String, Variable> originalVariables = scopeEntry.getValue();
+
+            // Создаем копию переменных для каждой области
+            Map<String, Variable> copiedVariables = new HashMap<>();
+            for (Map.Entry<String, Variable> varEntry : originalVariables.entrySet()) {
+                Variable originalVariable = varEntry.getValue();
+                copiedVariables.put(varEntry.getKey(), originalVariable.deepCopy());
+            }
+
+            // Добавляем скопированные переменные в новую область видимости
+            copy.scopedVariables.put(scope, copiedVariables);
+        }
+
+        return copy;
+    }
+
+
 }
 
 
@@ -3118,8 +4240,10 @@ class Optimizer {
         try {
             if (node instanceof VariableDeclarationNode declarationNode) {
                 String variableName = declarationNode.getName().getName();
-                if (this.symbolTable.getSymbolUseNum(variableName + "_global") <= 0) {
-                    return null;
+                if (!Objects.equals(this.symbolTable.getSymbolType(variableName + "_global"), "param")) {
+                    if (this.symbolTable.getSymbolUseNum(variableName + "_global") <= 0) {
+                        return null;
+                    }
                 }
             }
         } catch (NullPointerException e) {
@@ -3212,17 +4336,18 @@ class Lexer {
     }
 
     public int findWordStart() {
-        int charNum = currentCharNum;
+        int charNum = currentCharNum-1;
         while(charNum > 0 && !Character.isWhitespace(this.code.charAt(charNum)) && (!specSymbolCheck(charNum))) {
             charNum--;
         }
-        return charNum;
+        return charNum+1;
     }
 
 
     private boolean digitCheck(Span span) {
         for (int i = span.posBegin; i < span.posEnd; i++) {
             if (!(Character.isDigit(this.code.charAt(i)) || this.code.charAt(i) == '.' || this.code.charAt(i) == ',')) {
+                System.out.println("Error " + this.code.charAt(i));
                 return false;
             }
         }
@@ -3301,11 +4426,16 @@ class Lexer {
         if (specSymbolCheck(this.currentCharNum)) {
             int offset = 1;
             if (this.code.charAt(this.currentCharNum) == '.' && digitCheck(new Span(lineNum, this.currentCharNum+1, this.currentCharNum+2))) {
-                if (digitCheck(new Span(lineNum, findWordStart()-1, this.currentCharNum)) && (this.code.charAt(this.currentCharNum+1) != '.')){
+                System.out.println(this.code.substring(findWordStart(), this.currentCharNum));
+                System.out.println(digitCheck(new Span(lineNum, findWordStart(), this.currentCharNum)));
+                System.out.println((this.code.charAt(this.currentCharNum+1) != '.'));
+                if (digitCheck(new Span(lineNum, findWordStart(), this.currentCharNum-1)) && (this.code.charAt(this.currentCharNum+1) != '.')){
+                    System.out.println(findWordStart());
                     tokenList.remove(tokenList.size()-1);
-                    int charNumNew = findWordStart()-1;
+                    int charNumNew = findWordStart();
                     this.currentCharNum++;
                     findWordEnd();
+                    System.out.println(this.code.substring(charNumNew, this.currentCharNum));
                     return scanNumber(new Span(lineNum, charNumNew, this.currentCharNum));
                 }
             }
@@ -3577,11 +4707,11 @@ class Lexer {
 
                 Lexer lexer = new Lexer(str);
                 List<Token> tokenList = lexer.start();
-                System.out.println();
-                System.out.println();
-                System.out.println();
+//                System.out.println();
+//                System.out.println();
+//                System.out.println();
                 Parser parser = new Parser(tokenList);
-                System.out.println(123);
+//                System.out.println(123);
                 ProgramNode ast = parser.parseProgram();
 
                 SymbolTable symbolTable = parser.getSymbolTable();
@@ -3591,9 +4721,21 @@ class Lexer {
                 System.out.println(ast);// Метод для парсинга
                 ast.printTree("", true);
 
+                System.out.println("");
+                System.out.println("");
+                System.out.println("");
+                System.out.println("interpreter console:");
+                System.out.println("");
                 Environment init = new Environment("global", "global");
                 Interpreter interpreter = new Interpreter(init);
                 interpreter.interpret(ast);
+
+                System.out.println("");
+                System.out.println("");
+                System.out.println("");
+                System.out.println("Environment");
+                System.out.println("");
+                init.printAllVariables();
 
             } catch (IOException e) {
                 System.out.println("Ошибка чтения файла: " + e.getMessage());
