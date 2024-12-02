@@ -82,6 +82,45 @@ class SymbolTable {
         }
     }
 
+    public String isVariableAccessible(String varName, String currentScope) {
+        String scopeToCheck = currentScope;
+
+        // Пытаемся найти переменную в текущей области видимости или в родительских
+        while (scopeToCheck != null) {
+            // Формируем полное имя переменной для поиска в таблице
+            String fullName = varName + "_" + scopeToCheck;
+
+
+            // Проверяем, существует ли переменная с таким именем в таблице
+            if (table.containsKey(fullName)) {
+                return scopeToCheck; // Переменная доступна
+            }
+
+            // Если переменная не найдена, переходим к родительской области видимости
+            System.out.println("parent");
+            System.out.println(scopeToCheck);
+            System.out.println(getParentScope(scopeToCheck));
+            System.out.println("parent");
+            scopeToCheck = getParentScope(scopeToCheck);
+        }
+
+        // Если ни в одной области видимости переменная не найдена, она недоступна
+        return null;
+    }
+
+
+    private String getParentScope(String currentScope) {
+        // Ищем в таблице символов родительскую область для текущей
+        for (Symbol symbol : table.values()) {
+            if (symbol.name.startsWith(currentScope + "_")) {
+                return symbol.name.replace(currentScope + "_", ""); // Убираем суффикс и возвращаем родителя
+            }
+        }
+        return null; // Если ничего не найдено, родительская область отсутствует
+    }
+
+
+
 
     public int getSymbolLength(String name) {
         Symbol symbol = table.get(name);
@@ -1540,6 +1579,10 @@ class VariableDeclarationNode extends DeclarationNode {
 
             int index = Integer.parseInt((String) lastIndex);
 
+            while (listNe.size() <= index) {
+                listNe.add(null);  // Добавляем null в список
+            }
+            
             listNe.set(index, newValue);
         } else if (list instanceof LinkedHashMap<?, ?>) {
             // Изменяем значение в словаре
@@ -1703,8 +1746,12 @@ class FunctionDeclarationNode extends DeclarationNode {
         functionNodeArray.add(this.functionBody);
         BlockNode function = new BlockNode(functionNodeArray, "function");
         environment.setScopeType(lastScopeType);
+//        Environment closureEnv = environment.deepCopy();
+//        System.out.println("closureEnv");
+//        System.out.println(funcName);
+//        System.out.println(closureEnv);
+//        System.out.println("closureEnv");
         environment.addVariable(funcName, function, "global");
-
     }
 
     public IdentifierNode getName() {
@@ -1989,7 +2036,11 @@ class ReturnNode extends StatementNode {
 //        else if (element instanceof ExpressionNode) {
 //            re = ((LiteralNode) ((ExpressionNode) element).executeExpressions(environment)).getValue();
 //        }
-        else if (element instanceof DictionaryEntryCall) {
+        else if (element instanceof ListNode) {
+            re = ((ListNode) element).toValueList();
+        }  else if (element instanceof DictionaryNode) {
+            re = ((DictionaryNode) element).toValueDictionary();
+        } else if (element instanceof DictionaryEntryCall) {
             re = ((DictionaryEntryCall) element).getValueIndex(environment);
         } else if (element instanceof FunctionCall) {
             re = ((FunctionCall) element).executeGet(environment);
@@ -2506,49 +2557,9 @@ class FunctionCall extends Node {
     public void execute(Environment environment) {
         String funcNameInit = ((IdentifierNode) this.funcIdentifier).getName();
         String funcName = ((IdentifierNode) (((BlockNode) environment.getVariable(funcNameInit, "global").getValue()).getChildren().get(0).getChildren().get(0))).getName();
-//        System.out.println(funcName2.getChildren().get(0));
-        BlockNode functionNode = (BlockNode) environment.getVariable(funcNameInit, "global").getValue();
-//        System.out.println(param.getChildren());
-        String lastScopeType = environment.getScopeType();
-        environment.setScopeType(funcName);
-        for (int i = 0; i < functionNode.getChildren().get(0).getChildren().get(1).getChildren().size(); i++) {
-            String paramName = ((VariableDeclarationNode) functionNode.getChildren().get(0).getChildren().get(1).getChildren().get(i)).variableName.getName();
-//            System.out.println(param.getChildren().get(i));
-            if (param.getChildren().get(i) instanceof LiteralNode) {
-                environment.updateVariable(paramName, ((LiteralNode) param.getChildren().get(i)).getValue() , funcName);
-            } else if (param.getChildren().get(i) instanceof IdentifierNode) {
-                environment.setScopeType(lastScopeType);
-//                if (environment.getVariable(((IdentifierNode) param.getChildren().get(i)).getName(), "global") == null) {
-//                    System.out.println("no global");
-//                }
-                Object value = environment.getVariable(((IdentifierNode) param.getChildren().get(i)).getName(), "global").getValue();
-                environment.setScopeType(funcName);
-                environment.updateVariable(paramName, value , funcName);
-            }
-
-        }
-//
-//        environment.setScopeType(funcName);
-
-        for (int j = 0; j < functionNode.getChildren().get(1).getChildren().size(); j++) {
-            functionNode.getChildren().get(1).getChildren().get(j).execute(environment);
-            if (environment.haveVariable("return" + environment.getScopeType(), environment.getScopeType())) {
-                Object returning = environment.getVariable("return" + environment.getScopeType(), environment.getScopeType()).getValue();
-                environment.setScopeType(lastScopeType);
-                environment.removeVariable("return" + environment.getScopeType(), environment.getScopeType());
-                return;
-            }
-        }
-        environment.setScopeType(lastScopeType);
-        return;
-    }
-
-
-    public Object executeGet(Environment environment) {
-        String funcNameInit = ((IdentifierNode) this.funcIdentifier).getName();
-        String funcName = ((IdentifierNode) (((BlockNode) environment.getVariable(funcNameInit, "global").getValue()).getChildren().get(0).getChildren().get(0))).getName();
 
 //        TODO: сделай
+//        Environment localEnv = environment.deepCopy();
         Environment localEnv = environment.deepCopy();
 
 //        Environment localEnv = environment.deepCopy();
@@ -2578,7 +2589,214 @@ class FunctionCall extends Node {
 //                    System.out.println("no global");
 //                }
 
-                Object value = localEnv.getVariable(((IdentifierNode) param.getChildren().get(i)).getName(), "global").getValue();
+                Object value = localEnv.getVariableRecursive(((IdentifierNode) param.getChildren().get(i)).getName(), lastScopeType).getValue();
+
+                localEnv.setScopeType(funcName);
+                localEnv.updateVariable(paramName, value , funcName);
+            }  else if (param.getChildren().get(i) instanceof ExpressionNode) {
+                localEnv.setScopeType(lastScopeType);
+                Object value = null;
+//                Object value = ((ExpressionNode) param.getChildren().get(i)).executeExpressions(environment);
+                if (((ExpressionNode) param.getChildren().get(i)).getLeftOp() instanceof ListNode &&
+                        ((ExpressionNode) param.getChildren().get(i)).getRightOp() instanceof ListNode) {
+                    value = (((ExpressionNode) param.getChildren().get(i)).executeConcat(environment));
+                } else if (((ExpressionNode) param.getChildren().get(i)).getLeftOp() instanceof DictionaryNode &&
+                        ((ExpressionNode) param.getChildren().get(i)).getRightOp() instanceof DictionaryNode) {
+                    value = ((((ExpressionNode) param.getChildren().get(i)).executeConcat(environment)));
+                } else if (((ExpressionNode) param.getChildren().get(i)).getLeftOp() instanceof IdentifierNode) {
+                    if (environment.getVariable(((IdentifierNode) ((ExpressionNode) param.getChildren().get(i)).getLeftOp()).getName(), "global").getValue() instanceof List<?>) {
+                        if (((ExpressionNode) param.getChildren().get(i)).getRightOp() instanceof IdentifierNode) {
+                            if (environment.getVariable(((IdentifierNode) ((ExpressionNode) param.getChildren().get(i)).getRightOp()).getName(), "global").getValue() instanceof List<?>) {
+                                value = ((((ExpressionNode) param.getChildren().get(i)).executeConcat(environment)));
+                            }
+                        } else if (((ExpressionNode) param.getChildren().get(i)).getRightOp() instanceof ListNode) {
+                            value = ((((ExpressionNode) param.getChildren().get(i)).executeConcat(environment)));
+                        }
+                    } else if (environment.getVariable(((IdentifierNode) ((ExpressionNode) param.getChildren().get(i)).getLeftOp()).getName(), "global").getValue() instanceof LinkedHashMap<?, ?>) {
+                        if (((ExpressionNode) param.getChildren().get(i)).getRightOp() instanceof IdentifierNode) {
+                            if (environment.getVariable(((IdentifierNode) ((ExpressionNode) param.getChildren().get(i)).getRightOp()).getName(), "global").getValue() instanceof LinkedHashMap<?, ?>) {
+                                value = ((((ExpressionNode) param.getChildren().get(i)).executeConcat(environment)));
+                            }
+                        } else if (((ExpressionNode) param.getChildren().get(i)).getRightOp() instanceof DictionaryNode) {
+                            value = ((((ExpressionNode) param.getChildren().get(i)).executeConcat(environment)));
+                        }
+                    } else {
+                        value = (((LiteralNode) ((ExpressionNode) param.getChildren().get(i)).executeExpressions(environment)).getValue());
+                    }
+                }  else if (((ExpressionNode) param.getChildren().get(i)).getLeftOp() instanceof ListNode) {
+                    if (((ExpressionNode) param.getChildren().get(i)).getRightOp() instanceof IdentifierNode) {
+                        if (environment.getVariable(((IdentifierNode) ((ExpressionNode) param.getChildren().get(i)).getRightOp()).getName(), "global").getValue() instanceof List<?>) {
+                            value = ((((ExpressionNode) param.getChildren().get(i)).executeConcat(environment)));
+                        }
+                    } else if (((ExpressionNode) param.getChildren().get(i)).getRightOp() instanceof ListNode) {
+                        value = ((((ExpressionNode) param.getChildren().get(i)).executeConcat(environment)));
+                    }
+                } else if (((ExpressionNode) param.getChildren().get(i)).getLeftOp() instanceof ExpressionNode) {
+                    if (((ExpressionNode) param.getChildren().get(i)).getRightOp() instanceof IdentifierNode) {
+                        if (environment.getVariable(((IdentifierNode) ((ExpressionNode) param.getChildren().get(i)).getRightOp()).getName(), "global").getValue() instanceof List<?>) {
+                            value = ((((ExpressionNode) param.getChildren().get(i)).executeConcat(environment)));
+                        } else if (environment.getVariable(((IdentifierNode) ((ExpressionNode) param.getChildren().get(i)).getRightOp()).getName(), "global").getValue() instanceof LinkedHashMap<?, ?>) {
+                            value = ((((ExpressionNode) param.getChildren().get(i)).executeConcat(environment)));
+                        }
+                    } else if (((ExpressionNode) param.getChildren().get(i)).getRightOp() instanceof ListNode) {
+                        value = ((((ExpressionNode) param.getChildren().get(i)).executeConcat(environment)));
+                    }  else if (((ExpressionNode) param.getChildren().get(i)).getRightOp() instanceof DictionaryNode) {
+                        value = ((((ExpressionNode) param.getChildren().get(i)).executeConcat(environment)));
+                    }
+                }  else if (((ExpressionNode) param.getChildren().get(i)).getLeftOp() instanceof DictionaryNode) {
+                    if (((ExpressionNode) param.getChildren().get(i)).getRightOp() instanceof IdentifierNode) {
+                        if (environment.getVariable(((IdentifierNode) ((ExpressionNode) param.getChildren().get(i)).getRightOp()).getName(), "global").getValue() instanceof LinkedHashMap<?, ?>) {
+                            value = ((((ExpressionNode) param.getChildren().get(i)).executeConcat(environment)));
+                        }
+                    } else if (((ExpressionNode) param.getChildren().get(i)).getRightOp() instanceof DictionaryNode) {
+                        value = ((((ExpressionNode) param.getChildren().get(i)).executeConcat(environment)));
+                    }
+                }  else if (((ExpressionNode) param.getChildren().get(i)).getLeftOp() instanceof ExpressionNode) {
+                    if (((ExpressionNode) param.getChildren().get(i)).getRightOp() instanceof IdentifierNode) {
+//                        System.out.println(((ExpressionNode) this.initializer).getRightOp());
+
+                        if (environment.getVariable(((IdentifierNode) ((ExpressionNode) param.getChildren().get(i)).getRightOp()).getName(), "global").getValue() instanceof LinkedHashMap<?, ?>) {
+                            value = ((((ExpressionNode) param.getChildren().get(i)).executeConcat(environment)));
+                        }
+                    } else if (((ExpressionNode) param.getChildren().get(i)).getRightOp() instanceof DictionaryNode) {
+                        value = ((((ExpressionNode) param.getChildren().get(i)).executeConcat(environment)));
+                    }
+                } else {
+                    value = (((LiteralNode) ((ExpressionNode) param.getChildren().get(i)).executeExpressions(environment)).getValue());
+                }
+                localEnv.setScopeType(funcName);
+                localEnv.updateVariable(paramName, value , funcName);
+                localEnv.printAllVariables();
+            }
+
+
+
+//            else if (param.getChildren().get(i) instanceof ExpressionNode) {
+//                localEnv.setScopeType(lastScopeType);
+//                Object value = ((ExpressionNode) param.getChildren().get(i)).executeExpressions(environment);
+//                localEnv.setScopeType(funcName);
+//                localEnv.updateVariable(paramName, value , funcName);
+//            }
+
+        }
+//
+//        environment.setScopeType(funcName);
+
+        for (int j = 0; j < functionNode.getChildren().get(1).getChildren().size(); j++) {
+
+            functionNode.getChildren().get(1).getChildren().get(j).execute(localEnv);
+            localEnv.printAllVariables();
+            if (localEnv.haveVariable("return" + localEnv.getScopeType(), localEnv.getScopeType())) {
+                Object returning = localEnv.getVariable("return" + localEnv.getScopeType(), localEnv.getScopeType()).getValue();
+                localEnv.removeVariable("return" + localEnv.getScopeType(), localEnv.getScopeType());
+                localEnv.setScopeType(lastScopeType);
+//                environment.setScopeType(lastScopeType);
+                System.out.println("1233212312");
+                System.out.println(lastScopeType);
+                System.out.println("1233212312");
+                environment.syncFunctions(localEnv);
+                return;
+            }
+        }
+        System.out.println("1233212312");
+        System.out.println(lastScopeType);
+        System.out.println(localEnv.getScopeType());
+        if (!Objects.equals(lastScopeType, localEnv.getScopeType())) {
+            localEnv.setScopeType(lastScopeType);
+            environment = localEnv.deepCopy();
+            localEnv.printAllVariables();
+            System.out.println("1233212312");
+        } else {
+            localEnv.setScopeType(lastScopeType);
+            environment.syncFunctions(localEnv);
+        }
+        System.out.println("1233212312");
+
+//        environment.setScopeType(lastScopeType);
+
+        return;
+    }
+//    public void execute(Environment environment) {
+//        String funcNameInit = ((IdentifierNode) this.funcIdentifier).getName();
+//        String funcName = ((IdentifierNode) (((BlockNode) environment.getVariable(funcNameInit, "global").getValue()).getChildren().get(0).getChildren().get(0))).getName();
+////        System.out.println(funcName2.getChildren().get(0));
+//        BlockNode functionNode = (BlockNode) environment.getVariable(funcNameInit, "global").getValue();
+////        System.out.println(param.getChildren());
+//        String lastScopeType = environment.getScopeType();
+//        environment.setScopeType(funcName);
+//        for (int i = 0; i < functionNode.getChildren().get(0).getChildren().get(1).getChildren().size(); i++) {
+//            String paramName = ((VariableDeclarationNode) functionNode.getChildren().get(0).getChildren().get(1).getChildren().get(i)).variableName.getName();
+////            System.out.println(param.getChildren().get(i));
+//            if (param.getChildren().get(i) instanceof LiteralNode) {
+//                environment.updateVariable(paramName, ((LiteralNode) param.getChildren().get(i)).getValue() , funcName);
+//            } else if (param.getChildren().get(i) instanceof IdentifierNode) {
+//                environment.setScopeType(lastScopeType);
+////                if (environment.getVariable(((IdentifierNode) param.getChildren().get(i)).getName(), "global") == null) {
+////                    System.out.println("no global");
+////                }
+//                Object value = environment.getVariable(((IdentifierNode) param.getChildren().get(i)).getName(), "global").getValue();
+//                environment.setScopeType(funcName);
+//                environment.updateVariable(paramName, value , funcName);
+//            }
+//
+//        }
+////
+////        environment.setScopeType(funcName);
+//
+//        for (int j = 0; j < functionNode.getChildren().get(1).getChildren().size(); j++) {
+//            functionNode.getChildren().get(1).getChildren().get(j).execute(environment);
+//            if (environment.haveVariable("return" + environment.getScopeType(), environment.getScopeType())) {
+//                Object returning = environment.getVariable("return" + environment.getScopeType(), environment.getScopeType()).getValue();
+//                environment.setScopeType(lastScopeType);
+//                environment.removeVariable("return" + environment.getScopeType(), environment.getScopeType());
+//                return;
+//            }
+//        }
+//        environment.setScopeType(lastScopeType);
+//        return;
+//    }
+
+
+    public Object executeGet(Environment environment) {
+        String funcNameInit = ((IdentifierNode) this.funcIdentifier).getName();
+        String funcName = ((IdentifierNode) (((BlockNode) environment.getVariable(funcNameInit, "global").getValue()).getChildren().get(0).getChildren().get(0))).getName();
+
+//        TODO: сделай
+        Environment localEnv = environment.deepCopy();
+
+//        Environment localEnv = environment.deepCopy();
+//        Раскоменти и замени внутри этой хуйни все на localEnv,
+//        тут прикол в том чтоб после вполенения проверить если внутри добавилась новая функия
+//        добавить все от нее внутрь нашего env
+
+//        System.out.println(funcName2.getChildren().get(0));
+
+        BlockNode functionNode = (BlockNode) localEnv.getVariable(funcNameInit, "global").getValue();
+//        System.out.println(param.getChildren());
+        String lastScopeType = localEnv.getScopeType();
+
+//        System.out.println("BLBLBLBLBLBLLBLBLBLB");
+//        System.out.println(funcName);
+//        System.out.println(lastScopeType);
+//        System.out.println("BBLBLBLBLLBLBLBLBLBLB");
+        localEnv.setScopeType(funcName);
+
+//        environment.setScopeType(funcName);
+
+        for (int i = 0; i < functionNode.getChildren().get(0).getChildren().get(1).getChildren().size(); i++) {
+            String paramName = ((VariableDeclarationNode) functionNode.getChildren().get(0).getChildren().get(1).getChildren().get(i)).variableName.getName();
+//            System.out.println(param.getChildren().get(i));
+            if (param.getChildren().get(i) instanceof LiteralNode) {
+                localEnv.updateVariable(paramName, ((LiteralNode) param.getChildren().get(i)).getValue() , funcName);
+            } else if (param.getChildren().get(i) instanceof IdentifierNode) {
+                localEnv.setScopeType(lastScopeType);
+
+//                if (environment.getVariable(((IdentifierNode) param.getChildren().get(i)).getName(), "global") == null) {
+//                    System.out.println("no global");
+//                }
+
+
+                Object value = localEnv.getVariableRecursive(((IdentifierNode) param.getChildren().get(i)).getName(), lastScopeType).getValue();
 
                 localEnv.setScopeType(funcName);
                 localEnv.updateVariable(paramName, value , funcName);
@@ -2678,7 +2896,16 @@ class FunctionCall extends Node {
                 localEnv.removeVariable("return" + localEnv.getScopeType(), localEnv.getScopeType());
                 localEnv.setScopeType(lastScopeType);
 //                environment.setScopeType(lastScopeType);
-                environment.syncFunctions(localEnv);
+                if (!Objects.equals(lastScopeType, localEnv.getScopeType())) {
+                    localEnv.setScopeType(lastScopeType);
+                    environment = localEnv.deepCopy();
+                    localEnv.printAllVariables();
+                    System.out.println("higihih");
+                } else {
+                    localEnv.setScopeType(lastScopeType);
+                    environment.syncFunctions(localEnv);
+                }
+//                environment.syncFunctions(localEnv);
                 return returning;
             }
         }
@@ -3921,9 +4148,10 @@ class Parser {
                 advance();
                 return re;
 //            } else if (program.isVariable(new IdentifierNode(identifierToken.identifier)) != null) {
-            } else if (this.symbolTable.getSymbolScope(identifierToken.identifier + "_" + this.scope) == scope) {
+            } else if (this.symbolTable.isVariableAccessible(identifierToken.identifier, this.scope) != null) {
                 advance();
-                this.symbolTable.addNumUse(identifierToken.identifier + "_" + this.scope);
+
+                this.symbolTable.addNumUse(identifierToken.identifier + "_" + this.symbolTable.isVariableAccessible(identifierToken.identifier, this.scope));
                 if (getCurrentToken().code == TokenCode.DOT) {
                     IdentifierNode variableIdentifier = new IdentifierNode(identifierToken.identifier);
                     advance();  // Переходим к следующему токену
@@ -3934,7 +4162,7 @@ class Parser {
 
                     // Проверка, является ли `index` числовым значением
                     if (isInteger(index)) {
-                        int listLength = symbolTable.getSymbolLength(identifierToken.identifier + "_" + this.scope);
+                        int listLength = symbolTable.getSymbolLength(identifierToken.identifier + "_" + this.symbolTable.isVariableAccessible(identifierToken.identifier, this.scope));
 //                        if (Integer.parseInt(index) < 0 || Integer.parseInt(index) >= listLength) {
 //                            throw new ParseException("Index " + index + " out of bounds for list " + identifierToken.identifier);
 //                        }
@@ -4053,7 +4281,7 @@ class Parser {
             } else {
                 this.symbolTable.printTable();
                 System.out.println(identifierToken.identifier + "_" + this.scope);
-                throw new ParseException("The identifier is not declared: " + ((Identifier) getCurrentToken()).identifier + " in line " + ((Identifier) getCurrentToken()).span.lineNum);
+                throw new ParseException("The identifier " + ((Identifier) getCurrentToken()).identifier + " is not declared in: " + this.scope + " in line " + ((Identifier) getCurrentToken()).span.lineNum);
             }
         }
 
@@ -4208,11 +4436,20 @@ class Variable {
     private String name;
     private Object value;
     private String scope;
+    private Environment closureEnv;
 
     public Variable(String name, Object value, String scope) {
         this.name = name;
         this.value = value;
         this.scope = scope;
+        this.closureEnv = null;
+    }
+
+    public Variable(String name, Object value, String scope, Environment closureEnv) {
+        this.name = name;
+        this.value = value;
+        this.scope = scope;
+        this.closureEnv = closureEnv;  // Инициализация окружения замыкания
     }
 
     public Variable deepCopy() {
@@ -4223,6 +4460,10 @@ class Variable {
 
     public String getName() {
         return name;
+    }
+
+    public Environment getClosureEnv() {
+        return this.closureEnv;
     }
 
     public Object getValue() {
@@ -4239,7 +4480,7 @@ class Variable {
 
     @Override
     public String toString() {
-        return "Variable{name='" + name + "', value=" + value + ", scope='" + scope + "'}";
+        return "Variable{name='" + name + "', value=" + value + ", scope='" + scope + "', cloEnvscope='" + closureEnv + "'}";
     }
 }
 
@@ -4277,6 +4518,18 @@ class Environment {
 
         }
         scopeVars.put(name, new Variable(name, value, scopeType));
+    }
+
+    public void addVariable(String name, Object value, String scopeType, Environment closureEnv) {
+        if (this.scopeType != "global") {
+            scopeType = this.scopeType;
+        }
+        scopedVariables.putIfAbsent(scopeType, new HashMap<>());
+        Map<String, Variable> scopeVars = scopedVariables.get(scopeType);
+//        if (scopeVars.containsKey(name)) {
+//            updateVariable(name, value, scopeType, closureEnv);
+//        }
+        scopeVars.put(name, new Variable(name, value, scopeType, closureEnv));
     }
 
     public void removeVariable(String name, String scopeType) {
@@ -4350,6 +4603,117 @@ class Environment {
         }
         return scopeVars.get(name);
     }
+
+
+
+    public Variable getVariableRecursive(String name, String currentScope) {
+        // Логируем текущий шаг
+//        System.out.println("Ищем переменную: " + name + " в области: " + currentScope);
+
+        // Проверяем переменную в текущей области
+        Map<String, Variable> scopeVars = scopedVariables.get(currentScope);
+        if (scopeVars != null && scopeVars.containsKey(name)) {
+//            System.out.println("Переменная " + name + " найдена в области: " + currentScope);
+            return scopeVars.get(name);
+        }
+
+        // Если переменная не найдена в текущей области
+        if (!scopedVariables.containsKey(currentScope)) {
+//            System.out.println("Область " + currentScope + " не найдена.");
+            throw new RuntimeException("Область " + currentScope + " не найдена.");
+        }
+
+        // Пробуем перейти в родительскую область
+//        System.out.println("Переменная " + name + " не найдена, ищем родительскую область...");
+//        System.out.println(currentScope);
+
+        String parentScopeVars = null;
+        for (Map.Entry<String, Map<String, Variable>> scopeEntry : scopedVariables.entrySet()) {
+            String scopeName = scopeEntry.getKey();  // Ключ внешнего Map, например "global", "checkValue2", etc.
+            Map<String, Variable> variables = scopeEntry.getValue();  // Внутренний Map, содержащий переменные для текущей области
+//            System.out.println("Scope2: " + scopeName);  // Выводим название области
+            for (Map.Entry<String, Variable> varEntry : variables.entrySet()) {
+                String variableName = varEntry.getKey();  // Название переменной
+                Variable variable = varEntry.getValue();  // Переменная
+//                System.out.println("Scope3: " + variableName + " " + currentScope);
+                if (Objects.equals(variableName, currentScope)) {
+                    parentScopeVars = scopeName;
+                }
+//                System.out.println("  Variable Name: " + variableName + ", Value: " + variable.getValue());
+            }
+        }
+//        System.out.println(parentScopeVars);
+        if (parentScopeVars != null) {
+            // Логируем переход в родительскую область
+//            System.out.println("Переходим в родительскую область: " + parentScopeVars);
+
+            // Рекурсивно ищем переменную в родительской области
+            return getVariableRecursive(name, parentScopeVars);
+        }
+
+        // Если переменная не найдена в родительских областях
+        printAllVariables();
+//        System.out.println("Переменная " + name + " не найдена в родительской области.");
+        throw new RuntimeException("Переменная " + name + " не найдена в области " + currentScope + ".");
+    }
+
+
+    public Variable getVariableRecursiveFromGlobal(String name, String currentScope) {
+        // Логируем текущий шаг
+        System.out.println("Ищем переменную: " + name + " в области: " + currentScope);
+
+        // Проверяем переменную в текущей области
+        Map<String, Variable> scopeVars = scopedVariables.get(currentScope);
+        if (scopeVars != null && scopeVars.containsKey(name)) {
+            System.out.println("Переменная " + name + " найдена в области: " + currentScope);
+            return scopeVars.get(name);
+        }
+
+        // Если переменная не найдена в текущей области
+        if (!scopedVariables.containsKey(currentScope)) {
+            System.out.println("Область " + currentScope + " не найдена.");
+            throw new RuntimeException("Область " + currentScope + " не найдена.");
+        }
+
+        // Пробуем перейти в родительскую область
+        System.out.println("Переменная " + name + " не найдена, ищем родительскую область...");
+        System.out.println(currentScope);
+
+        String parentScopeVars = null;
+        for (Map.Entry<String, Map<String, Variable>> scopeEntry : scopedVariables.entrySet()) {
+            String scopeName = scopeEntry.getKey();  // Ключ внешнего Map, например "global", "checkValue2", etc.
+            Map<String, Variable> variables = scopeEntry.getValue();  // Внутренний Map, содержащий переменные для текущей области
+            System.out.println("Scope2: " + scopeName);  // Выводим название области
+            if (Objects.equals(scopeName, name)) {
+                parentScopeVars = scopeName;
+            }
+            for (Map.Entry<String, Variable> varEntry : variables.entrySet()) {
+                String variableName = varEntry.getKey();  // Название переменной
+                Variable variable = varEntry.getValue();  // Переменная
+                System.out.println("Scope3: " + variableName + " " + currentScope);
+                if (Objects.equals(variableName, name)) {
+                    parentScopeVars = scopeName;
+                }
+//                System.out.println("  Variable Name: " + variableName + ", Value: " + variable.getValue());
+            }
+        }
+        System.out.println(parentScopeVars);
+        if (parentScopeVars != null) {
+            // Логируем переход в родительскую область
+            System.out.println("Переходим в родительскую область: " + parentScopeVars);
+
+            // Рекурсивно ищем переменную в родительской области
+            return getVariableRecursive(name, parentScopeVars);
+        }
+
+        // Если переменная не найдена в родительских областях
+        printAllVariables();
+        System.out.println("Переменная " + name + " не найдена в родительской области.");
+        throw new RuntimeException("Переменная " + name + " не найдена в области " + currentScope + ".");
+    }
+
+
+
 
 
     private String determineType(Object value) {
