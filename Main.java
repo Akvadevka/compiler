@@ -1,4 +1,3 @@
-import java.io.Console;
 import java.util.*;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -82,6 +81,45 @@ class SymbolTable {
             return null;
         }
     }
+
+    public String isVariableAccessible(String varName, String currentScope) {
+        String scopeToCheck = currentScope;
+
+        // Пытаемся найти переменную в текущей области видимости или в родительских
+        while (scopeToCheck != null) {
+            // Формируем полное имя переменной для поиска в таблице
+            String fullName = varName + "_" + scopeToCheck;
+
+
+            // Проверяем, существует ли переменная с таким именем в таблице
+            if (table.containsKey(fullName)) {
+                return scopeToCheck; // Переменная доступна
+            }
+
+            // Если переменная не найдена, переходим к родительской области видимости
+            System.out.println("parent");
+            System.out.println(scopeToCheck);
+            System.out.println(getParentScope(scopeToCheck));
+            System.out.println("parent");
+            scopeToCheck = getParentScope(scopeToCheck);
+        }
+
+        // Если ни в одной области видимости переменная не найдена, она недоступна
+        return null;
+    }
+
+
+    private String getParentScope(String currentScope) {
+        // Ищем в таблице символов родительскую область для текущей
+        for (Symbol symbol : table.values()) {
+            if (symbol.name.startsWith(currentScope + "_")) {
+                return symbol.name.replace(currentScope + "_", ""); // Убираем суффикс и возвращаем родителя
+            }
+        }
+        return null; // Если ничего не найдено, родительская область отсутствует
+    }
+
+
 
 
     public int getSymbolLength(String name) {
@@ -426,6 +464,7 @@ class ExpressionNode extends Node {
         result.addAll(left);
         result.addAll(right);
         return result;
+
     }
 
     public LinkedHashMap<Object, Object> concatDicts(LinkedHashMap<Object, Object> left, LinkedHashMap<Object, Object> right) {
@@ -436,11 +475,38 @@ class ExpressionNode extends Node {
     }
 
     public Node executeExpressions(Environment environment) {
+        Node leftEvaluated =  null;
+        if (rightOperand instanceof FunctionCall) {
+            Object resultR = ((FunctionCall) rightOperand).executeGet(environment);
+            if (leftOperand instanceof FunctionCall) {
+                Object resultL = ((FunctionCall) leftOperand).executeGet(environment);
+                return FuncExpression(resultL, resultR);
+            }
+            else if (operator != TokenCode.NOT) {
+                leftEvaluated = leftOperand instanceof ExpressionNode
+                        ? ((ExpressionNode) leftOperand).executeExpressions(environment)
+                        : resolveValue(leftOperand, environment, "global");
+                return FuncExpression(leftEvaluated, resultR);
+            }
+            return FuncExpression(null, resultR);
+        }
+        if (leftOperand instanceof FunctionCall) {
+            Object resultL = ((FunctionCall) leftOperand).executeGet(environment);
+            if (rightOperand instanceof FunctionCall) {
+                Object resultR = ((FunctionCall) rightOperand).executeGet(environment);
+                return FuncExpression(resultL, resultR);
+            }
+            else {
+                Node rightEvaluated = rightOperand instanceof ExpressionNode
+                        ? ((ExpressionNode) rightOperand).executeExpressions(environment)
+                        : resolveValue(rightOperand, environment, "global");
+                return FuncExpression(resultL, rightEvaluated);
+            }
+        }
 
         Node rightEvaluated = rightOperand instanceof ExpressionNode
                 ? ((ExpressionNode) rightOperand).executeExpressions(environment)
                 : resolveValue(rightOperand, environment, "global");
-        Node leftEvaluated =  null;
         if (operator != TokenCode.NOT) {
             leftEvaluated = leftOperand instanceof ExpressionNode
                     ? ((ExpressionNode) leftOperand).executeExpressions(environment)
@@ -486,7 +552,380 @@ class ExpressionNode extends Node {
         }
         return this;
     }
+    public Node FuncExpression(Object leftOperand, Object rightOperand) {
+        String leftType = null;
+        String rightType = null;
+        if (leftOperand != null && leftOperand instanceof Node) {
+            leftType = ((LiteralNode) leftOperand).getType();
+        } else if (leftOperand != null){
+            leftType = determineType(leftOperand);
+        }
+        if (rightOperand instanceof Node) {
+            rightType = ((LiteralNode) rightOperand).getType();
+        } else {
+            rightType = determineType(rightOperand);
+        }
 
+        switch (operator) {
+            case PLUS:
+                if (leftType.equals("int") && rightType.equals("int")) {
+                    int result;
+                    if (leftOperand instanceof Node) {
+                        int left = Integer.parseInt(((LiteralNode) leftOperand).getValue().toString());
+                        result = left + (Integer)rightOperand;
+                    }else if (rightOperand instanceof Node) {
+                        int right = Integer.parseInt(((LiteralNode) rightOperand).getValue().toString());
+                        result = right + (Integer)leftOperand;
+                    } else {
+                        result = (Integer)rightOperand + (Integer)leftOperand;
+                    }
+                    return new LiteralNode((Object) result, "int");
+                } else if ((leftType.equals("int") && rightType.equals("real")) ||
+                        (leftType.equals("real") && rightType.equals("int")) ||
+                        (leftType.equals("real") && rightType.equals("real"))) {
+                    double result;
+                    if (leftOperand instanceof Node) {
+                        double left = Double.parseDouble(((LiteralNode) leftOperand).getValue().toString());
+                        result = left + (Double)rightOperand;
+                    }else if (rightOperand instanceof Node) {
+                        double right = Double.parseDouble(((LiteralNode) rightOperand).getValue().toString());
+                        result = right + (Double)leftOperand;
+                    } else {
+                        result = (Double)rightOperand + (Double)leftOperand;
+                    }
+                    return new LiteralNode((Object) result, "real");
+                } else if (leftType.equals("string") && rightType.equals("string")) {
+                    String result;
+                    if (leftOperand instanceof Node) {
+                        String left = ((LiteralNode) leftOperand).getValue().toString();
+                        result = left + rightOperand.toString();
+                    }else if (rightOperand instanceof Node) {
+                        String right = ((LiteralNode) rightOperand).getValue().toString();
+                        result = leftOperand.toString() + right;
+                    } else {
+                        result = leftOperand.toString() + rightOperand.toString();
+                    }
+                    return new LiteralNode((Object) result, "string");
+                }
+//                if (leftType.equals("dictionary") && rightType.equals("dictionary")) return;
+//                if (leftType.equals("list") && rightType.equals("list")) return;
+                break;
+
+            case MINUS:
+                if (leftType.equals("int") && rightType.equals("int")) {
+                    int result;
+                    if (leftOperand instanceof Node) {
+                        int left = Integer.parseInt(((LiteralNode) leftOperand).getValue().toString());
+                        result = left - (Integer)rightOperand;
+                    }else if (rightOperand instanceof Node) {
+                        int right = Integer.parseInt(((LiteralNode) rightOperand).getValue().toString());
+                        result = (Integer)leftOperand - right;
+                    } else {
+                        result = (Integer)leftOperand - (Integer)rightOperand;
+                    }
+                    return new LiteralNode((Object) result, "int");
+                } else if ((leftType.equals("int") && rightType.equals("real")) ||
+                        (leftType.equals("real") && rightType.equals("int")) ||
+                        (leftType.equals("real") && rightType.equals("real"))) {
+                    double result;
+                    if (leftOperand instanceof Node) {
+                        double left = Double.parseDouble(((LiteralNode) leftOperand).getValue().toString());
+                        result = left - (Double)rightOperand;
+                    }else if (rightOperand instanceof Node) {
+                        double right = Double.parseDouble(((LiteralNode) rightOperand).getValue().toString());
+                        result = (Double)leftOperand - right;
+                    } else {
+                        result = (Double)leftOperand - (Double)rightOperand;
+                    }
+                    return new LiteralNode((Object) result, "real");
+                }
+                break;
+            case MULTIPLY:
+                if (leftType.equals("int") && rightType.equals("int")) {
+                    int result;
+                    if (leftOperand instanceof Node) {
+                        int left = Integer.parseInt(((LiteralNode) leftOperand).getValue().toString());
+                        result = left * (Integer)rightOperand;
+                    }else if (rightOperand instanceof Node) {
+                        int right = Integer.parseInt(((LiteralNode) rightOperand).getValue().toString());
+                        result = right * (Integer)leftOperand;
+                    } else {
+                        result = (Integer)rightOperand * (Integer)leftOperand;
+                    }
+                    return new LiteralNode((Object) result, "int");
+                } else if ((leftType.equals("int") && rightType.equals("real")) ||
+                        (leftType.equals("real") && rightType.equals("int")) ||
+                        (leftType.equals("real") && rightType.equals("real"))) {
+                    double result;
+                    if (leftOperand instanceof Node) {
+                        double left = Double.parseDouble(((LiteralNode) leftOperand).getValue().toString());
+                        result = left * (Double)rightOperand;
+                    }else if (rightOperand instanceof Node) {
+                        double right = Double.parseDouble(((LiteralNode) rightOperand).getValue().toString());
+                        result = right * (Double)leftOperand;
+                    } else {
+                        result = (Double)rightOperand * (Double)leftOperand;
+                    }
+                    return new LiteralNode((Object) result, "real");
+                }
+                break;
+            case DIVIDE:
+                if (leftType.equals("int") && rightType.equals("int")) {
+                    if (rightOperand instanceof Node) {
+                        if (Integer.parseInt(((LiteralNode) rightOperand).getValue().toString()) == 0) {
+                            throw new ArithmeticException("Division by zero!");
+                        }
+                    } else {
+                        if ((Integer)rightOperand == 0) {
+                            throw new ArithmeticException("Division by zero!");
+                        }
+                    }
+                    int result;
+                    if (leftOperand instanceof Node) {
+                        int left = Integer.parseInt(((LiteralNode) leftOperand).getValue().toString());
+                        result = left / (Integer)rightOperand;
+                    }else if (rightOperand instanceof Node) {
+                        int right = Integer.parseInt(((LiteralNode) rightOperand).getValue().toString());
+                        result = right / (Integer)leftOperand;
+                    } else {
+                        result = (Integer)leftOperand / (Integer)rightOperand;
+                    }
+                    return new LiteralNode((Object) result, "int");
+                } else if ((leftType.equals("int") && rightType.equals("real")) ||
+                        (leftType.equals("real") && rightType.equals("int")) ||
+                        (leftType.equals("real") && rightType.equals("real"))) {
+                    if (rightOperand instanceof Node) {
+                        if (Double.parseDouble(((LiteralNode) rightOperand).getValue().toString()) == 0) {
+                            throw new ArithmeticException("Division by zero!");
+                        }
+                    } else {
+                        if ((Integer)rightOperand == 0) {
+                            throw new ArithmeticException("Division by zero!");
+                        }
+                    }
+                    double result;
+                    if (leftOperand instanceof Node) {
+                        double left = Double.parseDouble(((LiteralNode) leftOperand).getValue().toString());
+                        result = left / (Double)rightOperand;
+                    }else if (rightOperand instanceof Node) {
+                        double right = Double.parseDouble(((LiteralNode) rightOperand).getValue().toString());
+                        result = right / (Double)leftOperand;
+                    } else {
+                        result = (Double)rightOperand / (Double)leftOperand;
+                    }
+                    return new LiteralNode((Object) result, "real");
+                }
+                break;
+
+            case LESS:
+            case GREATER:
+            case LESS_EQUAL:
+            case GREATER_EQUAL:
+            case EQUAL:
+            case NOT_EQUAL:
+                if (leftType.equals("int") && rightType.equals("real")) {
+                    boolean result;
+                    int leftValue;
+                    double rightValue;
+                    if (leftOperand instanceof Node) {
+                        leftValue = Integer.parseInt(((LiteralNode) leftOperand).getValue().toString());
+                    } else {
+                        leftValue = (int) leftOperand;
+                    }
+                    if (rightOperand instanceof Node) {
+                        rightValue = Double.parseDouble(((LiteralNode) rightOperand).getValue().toString());
+                    } else {
+                        rightValue = (double) rightOperand;
+                    }
+                    switch (operator) {
+                        case LESS:
+                            result = leftValue < rightValue;
+                            break;
+                        case GREATER:
+                            result = leftValue > rightValue;
+                            break;
+                        case LESS_EQUAL:
+                            result = leftValue <= rightValue;
+                            break;
+                        case GREATER_EQUAL:
+                            result = leftValue >= rightValue;
+                            break;
+                        case EQUAL:
+                            result = leftValue == rightValue;
+                            break;
+                        case NOT_EQUAL:
+                            result = leftValue != rightValue;
+                            break;
+                        default:
+                            throw new ParseException("Invalid comparison operation.");
+                    }
+                    return new LiteralNode((Object) result, "boolean");
+                }
+                if (leftType.equals("real") && rightType.equals("int")) {
+                    boolean result;
+                    double leftValue;
+                    int rightValue;
+                    if (leftOperand instanceof Node) {
+                        leftValue = Double.parseDouble(((LiteralNode) leftOperand).getValue().toString());
+                    } else {
+                        leftValue = (double) leftOperand;
+                    }
+                    if (rightOperand instanceof Node) {
+                        rightValue = Integer.parseInt(((LiteralNode) rightOperand).getValue().toString());
+                    } else {
+                        rightValue = (int) rightOperand;
+                    }
+                    switch (operator) {
+                        case LESS:
+                            result = leftValue < rightValue;
+                            break;
+                        case GREATER:
+                            result = leftValue > rightValue;
+                            break;
+                        case LESS_EQUAL:
+                            result = leftValue <= rightValue;
+                            break;
+                        case GREATER_EQUAL:
+                            result = leftValue >= rightValue;
+                            break;
+                        case EQUAL:
+                            result = leftValue == rightValue;
+                            break;
+                        case NOT_EQUAL:
+                            result = leftValue != rightValue;
+                            break;
+                        default:
+                            throw new ParseException("Invalid comparison operation.");
+                    }
+                    return new LiteralNode((Object) result, "boolean");
+                }else if (leftType.equals("int") && rightType.equals("int")) {
+                    boolean result;
+                    int leftValue;
+                    int rightValue;
+                    if (leftOperand instanceof Node) {
+                        leftValue = Integer.parseInt(((LiteralNode) leftOperand).getValue().toString());
+                    } else {
+                        leftValue = (int) leftOperand;
+                    }
+                    if (rightOperand instanceof Node) {
+                        rightValue = Integer.parseInt(((LiteralNode) rightOperand).getValue().toString());
+                    } else {
+                        rightValue = (int) rightOperand;
+                    }
+                    switch (operator) {
+                        case LESS:
+                            result = leftValue < rightValue;
+                            break;
+                        case GREATER:
+                            result = leftValue > rightValue;
+                            break;
+                        case LESS_EQUAL:
+                            result = leftValue <= rightValue;
+                            break;
+                        case GREATER_EQUAL:
+                            result = leftValue >= rightValue;
+                            break;
+                        case EQUAL:
+                            result = leftValue == rightValue;
+                            break;
+                        case NOT_EQUAL:
+                            result = leftValue != rightValue;
+                            break;
+                        default:
+                            throw new ParseException("Invalid comparison operation.");
+                    }
+                    return new LiteralNode((Object) result, "boolean");
+                }else if (leftType.equals("real") && rightType.equals("real")) {
+                    boolean result;
+                    double leftValue;
+                    double rightValue;
+                    if (leftOperand instanceof Node) {
+                        leftValue = Double.parseDouble(((LiteralNode) leftOperand).getValue().toString());
+                    } else {
+                        leftValue = (double) leftOperand;
+                    }
+                    if (rightOperand instanceof Node) {
+                        rightValue = Double.parseDouble(((LiteralNode) rightOperand).getValue().toString());
+                    } else {
+                        rightValue = (double) rightOperand;
+                    }
+                    switch (operator) {
+                        case LESS:
+                            result = leftValue < rightValue;
+                            break;
+                        case GREATER:
+                            result = leftValue > rightValue;
+                            break;
+                        case LESS_EQUAL:
+                            result = leftValue <= rightValue;
+                            break;
+                        case GREATER_EQUAL:
+                            result = leftValue >= rightValue;
+                            break;
+                        case EQUAL:
+                            result = leftValue == rightValue;
+                            break;
+                        case NOT_EQUAL:
+                            result = leftValue != rightValue;
+                            break;
+                        default:
+                            throw new ParseException("Invalid comparison operation.");
+                    }
+                    return new LiteralNode((Object) result, "boolean");
+                }
+                break;
+            case AND:
+            case OR:
+            case XOR:
+                if (leftType.equals("boolean") && rightType.equals("boolean")) {
+                    boolean result;
+                    boolean leftValue;
+                    boolean rightValue;
+                    if (leftOperand instanceof Node) {
+                        leftValue = Boolean.parseBoolean(((LiteralNode) leftOperand).getValue().toString());
+                    } else {
+                        leftValue = (boolean) leftOperand;
+                    }
+                    if (rightOperand instanceof Node) {
+                        rightValue = Boolean.parseBoolean(((LiteralNode) rightOperand).getValue().toString());
+                    } else {
+                        rightValue = (boolean) rightOperand;
+                    }
+                    switch (operator) {
+                        case AND:
+                            result = leftValue && rightValue;
+                            break;
+                        case OR:
+                            result = leftValue || rightValue;
+                            break;
+                        case XOR:
+                            result = leftValue ^ rightValue;
+                            break;
+                        default:
+                            throw new ParseException("Unsupported operation: " + operator);
+                    }
+                    return new LiteralNode((Object) result, "boolean");
+                }
+                break;
+
+            case NOT:
+                if (rightType.equals("boolean")) {
+                    boolean rightValue;
+                    if (rightOperand instanceof Node) {
+                        rightValue = Boolean.parseBoolean(((LiteralNode) rightOperand).getValue().toString());
+                    } else {
+                        rightValue = (boolean)rightOperand;
+                    }
+                    boolean result = !rightValue;
+                    return new LiteralNode((Object) result, "boolean");
+                }
+                break;
+
+            default:
+                throw new RuntimeException("Unsupported operation for types: " + leftType + " and " + rightType);
+        }
+        throw new RuntimeException("Invalid operand types for operation: " + leftType + " and " + rightType);
+    }
     public Node checkTypes() {
         String leftType = ((LiteralNode) leftOperand).getType();
         String rightType = ((LiteralNode) rightOperand).getType();
@@ -626,7 +1065,6 @@ class ExpressionNode extends Node {
 
     private Node resolveValue(Node node, Environment environment, String scopeType) {
         if (node instanceof LiteralNode) {
-            // Если узел — литерал, возвращаем его как есть
             return node;
         } else if (node instanceof IdentifierNode) {
             // Если узел — переменная, извлекаем значение из окружения
@@ -649,6 +1087,10 @@ class ExpressionNode extends Node {
             return "boolean";
         } else if (value instanceof String) {
             return "string";
+        } else if (value instanceof ArrayList<?>) {
+            return "array";
+        } else if (value instanceof LinkedHashMap<?,?>) {
+            return "tuple";
         }
         throw new RuntimeException("Unsupported value type: " + value.getClass());
     }
@@ -1112,6 +1554,10 @@ class VariableDeclarationNode extends DeclarationNode {
 
             int index = Integer.parseInt((String) lastIndex);
 
+            while (listNe.size() <= index) {
+                listNe.add(null);  // Добавляем null в список
+            }
+
             listNe.set(index, newValue);
         } else if (list instanceof LinkedHashMap<?, ?>) {
             // Изменяем значение в словаре
@@ -1275,8 +1721,12 @@ class FunctionDeclarationNode extends DeclarationNode {
         functionNodeArray.add(this.functionBody);
         BlockNode function = new BlockNode(functionNodeArray, "function");
         environment.setScopeType(lastScopeType);
+//        Environment closureEnv = environment.deepCopy();
+//        System.out.println("closureEnv");
+//        System.out.println(funcName);
+//        System.out.println(closureEnv);
+//        System.out.println("closureEnv");
         environment.addVariable(funcName, function, "global");
-
     }
 
     public IdentifierNode getName() {
@@ -1557,7 +2007,11 @@ class ReturnNode extends StatementNode {
 //        else if (element instanceof ExpressionNode) {
 //            re = ((LiteralNode) ((ExpressionNode) element).executeExpressions(environment)).getValue();
 //        }
-        else if (element instanceof DictionaryEntryCall) {
+        else if (element instanceof ListNode) {
+            re = ((ListNode) element).toValueList();
+        }  else if (element instanceof DictionaryNode) {
+            re = ((DictionaryNode) element).toValueDictionary();
+        } else if (element instanceof DictionaryEntryCall) {
             re = ((DictionaryEntryCall) element).getValueIndex(environment);
         } else if (element instanceof FunctionCall) {
             re = ((FunctionCall) element).executeGet(environment);
@@ -2027,55 +2481,18 @@ class FunctionCall extends Node {
     public void execute(Environment environment) {
         String funcNameInit = ((IdentifierNode) this.funcIdentifier).getName();
         String funcName = ((IdentifierNode) (((BlockNode) environment.getVariable(funcNameInit, "global").getValue()).getChildren().get(0).getChildren().get(0))).getName();
-//        System.out.println(funcName2.getChildren().get(0));
-        BlockNode functionNode = (BlockNode) environment.getVariable(funcNameInit, "global").getValue();
-//        System.out.println(param.getChildren());
-        String lastScopeType = environment.getScopeType();
-        environment.setScopeType(funcName);
-        for (int i = 0; i < functionNode.getChildren().get(0).getChildren().get(1).getChildren().size(); i++) {
-            String paramName = ((VariableDeclarationNode) functionNode.getChildren().get(0).getChildren().get(1).getChildren().get(i)).variableName.getName();
-//            System.out.println(param.getChildren().get(i));
-            if (param.getChildren().get(i) instanceof LiteralNode) {
-                environment.updateVariable(paramName, ((LiteralNode) param.getChildren().get(i)).getValue() , funcName);
-            } else if (param.getChildren().get(i) instanceof IdentifierNode) {
-                environment.setScopeType(lastScopeType);
-//                if (environment.getVariable(((IdentifierNode) param.getChildren().get(i)).getName(), "global") == null) {
-//                    System.out.println("no global");
-//                }
-                Object value = environment.getVariable(((IdentifierNode) param.getChildren().get(i)).getName(), "global").getValue();
-                environment.setScopeType(funcName);
-                environment.updateVariable(paramName, value , funcName);
-            }
-
-        }
-//
-//        environment.setScopeType(funcName);
-
-        for (int j = 0; j < functionNode.getChildren().get(1).getChildren().size(); j++) {
-            functionNode.getChildren().get(1).getChildren().get(j).execute(environment);
-            if (environment.haveVariable("return" + environment.getScopeType(), environment.getScopeType())) {
-                Object returning = environment.getVariable("return" + environment.getScopeType(), environment.getScopeType()).getValue();
-                environment.setScopeType(lastScopeType);
-                environment.removeVariable("return" + environment.getScopeType(), environment.getScopeType());
-                return;
-            }
-        }
-        environment.setScopeType(lastScopeType);
-        return;
-    }
-
-
-    public Object executeGet(Environment environment) {
-        String funcNameInit = ((IdentifierNode) this.funcIdentifier).getName();
-        String funcName = ((IdentifierNode) (((BlockNode) environment.getVariable(funcNameInit, "global").getValue()).getChildren().get(0).getChildren().get(0))).getName();
 
 //        TODO: сделай
+//        Environment localEnv = environment.deepCopy();
         Environment localEnv = environment.deepCopy();
+
+//        Environment localEnv = environment.deepCopy();
 //        Раскоменти и замени внутри этой хуйни все на localEnv,
 //        тут прикол в том чтоб после вполенения проверить если внутри добавилась новая функия
 //        добавить все от нее внутрь нашего env
 
 //        System.out.println(funcName2.getChildren().get(0));
+
         BlockNode functionNode = (BlockNode) localEnv.getVariable(funcNameInit, "global").getValue();
 //        System.out.println(param.getChildren());
         String lastScopeType = localEnv.getScopeType();
@@ -2095,7 +2512,214 @@ class FunctionCall extends Node {
 //                if (environment.getVariable(((IdentifierNode) param.getChildren().get(i)).getName(), "global") == null) {
 //                    System.out.println("no global");
 //                }
-                Object value = localEnv.getVariable(((IdentifierNode) param.getChildren().get(i)).getName(), "global").getValue();
+
+                Object value = localEnv.getVariableRecursive(((IdentifierNode) param.getChildren().get(i)).getName(), lastScopeType).getValue();
+
+                localEnv.setScopeType(funcName);
+                localEnv.updateVariable(paramName, value , funcName);
+            }  else if (param.getChildren().get(i) instanceof ExpressionNode) {
+                localEnv.setScopeType(lastScopeType);
+                Object value = null;
+//                Object value = ((ExpressionNode) param.getChildren().get(i)).executeExpressions(environment);
+                if (((ExpressionNode) param.getChildren().get(i)).getLeftOp() instanceof ListNode &&
+                        ((ExpressionNode) param.getChildren().get(i)).getRightOp() instanceof ListNode) {
+                    value = (((ExpressionNode) param.getChildren().get(i)).executeConcat(environment));
+                } else if (((ExpressionNode) param.getChildren().get(i)).getLeftOp() instanceof DictionaryNode &&
+                        ((ExpressionNode) param.getChildren().get(i)).getRightOp() instanceof DictionaryNode) {
+                    value = ((((ExpressionNode) param.getChildren().get(i)).executeConcat(environment)));
+                } else if (((ExpressionNode) param.getChildren().get(i)).getLeftOp() instanceof IdentifierNode) {
+                    if (environment.getVariable(((IdentifierNode) ((ExpressionNode) param.getChildren().get(i)).getLeftOp()).getName(), "global").getValue() instanceof List<?>) {
+                        if (((ExpressionNode) param.getChildren().get(i)).getRightOp() instanceof IdentifierNode) {
+                            if (environment.getVariable(((IdentifierNode) ((ExpressionNode) param.getChildren().get(i)).getRightOp()).getName(), "global").getValue() instanceof List<?>) {
+                                value = ((((ExpressionNode) param.getChildren().get(i)).executeConcat(environment)));
+                            }
+                        } else if (((ExpressionNode) param.getChildren().get(i)).getRightOp() instanceof ListNode) {
+                            value = ((((ExpressionNode) param.getChildren().get(i)).executeConcat(environment)));
+                        }
+                    } else if (environment.getVariable(((IdentifierNode) ((ExpressionNode) param.getChildren().get(i)).getLeftOp()).getName(), "global").getValue() instanceof LinkedHashMap<?, ?>) {
+                        if (((ExpressionNode) param.getChildren().get(i)).getRightOp() instanceof IdentifierNode) {
+                            if (environment.getVariable(((IdentifierNode) ((ExpressionNode) param.getChildren().get(i)).getRightOp()).getName(), "global").getValue() instanceof LinkedHashMap<?, ?>) {
+                                value = ((((ExpressionNode) param.getChildren().get(i)).executeConcat(environment)));
+                            }
+                        } else if (((ExpressionNode) param.getChildren().get(i)).getRightOp() instanceof DictionaryNode) {
+                            value = ((((ExpressionNode) param.getChildren().get(i)).executeConcat(environment)));
+                        }
+                    } else {
+                        value = (((LiteralNode) ((ExpressionNode) param.getChildren().get(i)).executeExpressions(environment)).getValue());
+                    }
+                }  else if (((ExpressionNode) param.getChildren().get(i)).getLeftOp() instanceof ListNode) {
+                    if (((ExpressionNode) param.getChildren().get(i)).getRightOp() instanceof IdentifierNode) {
+                        if (environment.getVariable(((IdentifierNode) ((ExpressionNode) param.getChildren().get(i)).getRightOp()).getName(), "global").getValue() instanceof List<?>) {
+                            value = ((((ExpressionNode) param.getChildren().get(i)).executeConcat(environment)));
+                        }
+                    } else if (((ExpressionNode) param.getChildren().get(i)).getRightOp() instanceof ListNode) {
+                        value = ((((ExpressionNode) param.getChildren().get(i)).executeConcat(environment)));
+                    }
+                } else if (((ExpressionNode) param.getChildren().get(i)).getLeftOp() instanceof ExpressionNode) {
+                    if (((ExpressionNode) param.getChildren().get(i)).getRightOp() instanceof IdentifierNode) {
+                        if (environment.getVariable(((IdentifierNode) ((ExpressionNode) param.getChildren().get(i)).getRightOp()).getName(), "global").getValue() instanceof List<?>) {
+                            value = ((((ExpressionNode) param.getChildren().get(i)).executeConcat(environment)));
+                        } else if (environment.getVariable(((IdentifierNode) ((ExpressionNode) param.getChildren().get(i)).getRightOp()).getName(), "global").getValue() instanceof LinkedHashMap<?, ?>) {
+                            value = ((((ExpressionNode) param.getChildren().get(i)).executeConcat(environment)));
+                        }
+                    } else if (((ExpressionNode) param.getChildren().get(i)).getRightOp() instanceof ListNode) {
+                        value = ((((ExpressionNode) param.getChildren().get(i)).executeConcat(environment)));
+                    }  else if (((ExpressionNode) param.getChildren().get(i)).getRightOp() instanceof DictionaryNode) {
+                        value = ((((ExpressionNode) param.getChildren().get(i)).executeConcat(environment)));
+                    }
+                }  else if (((ExpressionNode) param.getChildren().get(i)).getLeftOp() instanceof DictionaryNode) {
+                    if (((ExpressionNode) param.getChildren().get(i)).getRightOp() instanceof IdentifierNode) {
+                        if (environment.getVariable(((IdentifierNode) ((ExpressionNode) param.getChildren().get(i)).getRightOp()).getName(), "global").getValue() instanceof LinkedHashMap<?, ?>) {
+                            value = ((((ExpressionNode) param.getChildren().get(i)).executeConcat(environment)));
+                        }
+                    } else if (((ExpressionNode) param.getChildren().get(i)).getRightOp() instanceof DictionaryNode) {
+                        value = ((((ExpressionNode) param.getChildren().get(i)).executeConcat(environment)));
+                    }
+                }  else if (((ExpressionNode) param.getChildren().get(i)).getLeftOp() instanceof ExpressionNode) {
+                    if (((ExpressionNode) param.getChildren().get(i)).getRightOp() instanceof IdentifierNode) {
+//                        System.out.println(((ExpressionNode) this.initializer).getRightOp());
+
+                        if (environment.getVariable(((IdentifierNode) ((ExpressionNode) param.getChildren().get(i)).getRightOp()).getName(), "global").getValue() instanceof LinkedHashMap<?, ?>) {
+                            value = ((((ExpressionNode) param.getChildren().get(i)).executeConcat(environment)));
+                        }
+                    } else if (((ExpressionNode) param.getChildren().get(i)).getRightOp() instanceof DictionaryNode) {
+                        value = ((((ExpressionNode) param.getChildren().get(i)).executeConcat(environment)));
+                    }
+                } else {
+                    value = (((LiteralNode) ((ExpressionNode) param.getChildren().get(i)).executeExpressions(environment)).getValue());
+                }
+                localEnv.setScopeType(funcName);
+                localEnv.updateVariable(paramName, value , funcName);
+                localEnv.printAllVariables();
+            }
+
+
+
+//            else if (param.getChildren().get(i) instanceof ExpressionNode) {
+//                localEnv.setScopeType(lastScopeType);
+//                Object value = ((ExpressionNode) param.getChildren().get(i)).executeExpressions(environment);
+//                localEnv.setScopeType(funcName);
+//                localEnv.updateVariable(paramName, value , funcName);
+//            }
+
+        }
+//
+//        environment.setScopeType(funcName);
+
+        for (int j = 0; j < functionNode.getChildren().get(1).getChildren().size(); j++) {
+
+            functionNode.getChildren().get(1).getChildren().get(j).execute(localEnv);
+            localEnv.printAllVariables();
+            if (localEnv.haveVariable("return" + localEnv.getScopeType(), localEnv.getScopeType())) {
+                Object returning = localEnv.getVariable("return" + localEnv.getScopeType(), localEnv.getScopeType()).getValue();
+                localEnv.removeVariable("return" + localEnv.getScopeType(), localEnv.getScopeType());
+                localEnv.setScopeType(lastScopeType);
+//                environment.setScopeType(lastScopeType);
+                System.out.println("1233212312");
+                System.out.println(lastScopeType);
+                System.out.println("1233212312");
+                environment.syncFunctions(localEnv);
+                return;
+            }
+        }
+        System.out.println("1233212312");
+        System.out.println(lastScopeType);
+        System.out.println(localEnv.getScopeType());
+        if (!Objects.equals(lastScopeType, localEnv.getScopeType())) {
+            localEnv.setScopeType(lastScopeType);
+            environment = localEnv.deepCopy();
+            localEnv.printAllVariables();
+            System.out.println("1233212312");
+        } else {
+            localEnv.setScopeType(lastScopeType);
+            environment.syncFunctions(localEnv);
+        }
+        System.out.println("1233212312");
+
+//        environment.setScopeType(lastScopeType);
+
+        return;
+    }
+//    public void execute(Environment environment) {
+//        String funcNameInit = ((IdentifierNode) this.funcIdentifier).getName();
+//        String funcName = ((IdentifierNode) (((BlockNode) environment.getVariable(funcNameInit, "global").getValue()).getChildren().get(0).getChildren().get(0))).getName();
+////        System.out.println(funcName2.getChildren().get(0));
+//        BlockNode functionNode = (BlockNode) environment.getVariable(funcNameInit, "global").getValue();
+////        System.out.println(param.getChildren());
+//        String lastScopeType = environment.getScopeType();
+//        environment.setScopeType(funcName);
+//        for (int i = 0; i < functionNode.getChildren().get(0).getChildren().get(1).getChildren().size(); i++) {
+//            String paramName = ((VariableDeclarationNode) functionNode.getChildren().get(0).getChildren().get(1).getChildren().get(i)).variableName.getName();
+////            System.out.println(param.getChildren().get(i));
+//            if (param.getChildren().get(i) instanceof LiteralNode) {
+//                environment.updateVariable(paramName, ((LiteralNode) param.getChildren().get(i)).getValue() , funcName);
+//            } else if (param.getChildren().get(i) instanceof IdentifierNode) {
+//                environment.setScopeType(lastScopeType);
+////                if (environment.getVariable(((IdentifierNode) param.getChildren().get(i)).getName(), "global") == null) {
+////                    System.out.println("no global");
+////                }
+//                Object value = environment.getVariable(((IdentifierNode) param.getChildren().get(i)).getName(), "global").getValue();
+//                environment.setScopeType(funcName);
+//                environment.updateVariable(paramName, value , funcName);
+//            }
+//
+//        }
+////
+////        environment.setScopeType(funcName);
+//
+//        for (int j = 0; j < functionNode.getChildren().get(1).getChildren().size(); j++) {
+//            functionNode.getChildren().get(1).getChildren().get(j).execute(environment);
+//            if (environment.haveVariable("return" + environment.getScopeType(), environment.getScopeType())) {
+//                Object returning = environment.getVariable("return" + environment.getScopeType(), environment.getScopeType()).getValue();
+//                environment.setScopeType(lastScopeType);
+//                environment.removeVariable("return" + environment.getScopeType(), environment.getScopeType());
+//                return;
+//            }
+//        }
+//        environment.setScopeType(lastScopeType);
+//        return;
+//    }
+
+
+    public Object executeGet(Environment environment) {
+        String funcNameInit = ((IdentifierNode) this.funcIdentifier).getName();
+        String funcName = ((IdentifierNode) (((BlockNode) environment.getVariable(funcNameInit, "global").getValue()).getChildren().get(0).getChildren().get(0))).getName();
+
+//        TODO: сделай
+        Environment localEnv = environment.deepCopy();
+
+//        Environment localEnv = environment.deepCopy();
+//        Раскоменти и замени внутри этой хуйни все на localEnv,
+//        тут прикол в том чтоб после вполенения проверить если внутри добавилась новая функия
+//        добавить все от нее внутрь нашего env
+
+//        System.out.println(funcName2.getChildren().get(0));
+
+        BlockNode functionNode = (BlockNode) localEnv.getVariable(funcNameInit, "global").getValue();
+//        System.out.println(param.getChildren());
+        String lastScopeType = localEnv.getScopeType();
+
+//        System.out.println("BLBLBLBLBLBLLBLBLBLB");
+//        System.out.println(funcName);
+//        System.out.println(lastScopeType);
+//        System.out.println("BBLBLBLBLLBLBLBLBLBLB");
+        localEnv.setScopeType(funcName);
+
+//        environment.setScopeType(funcName);
+
+        for (int i = 0; i < functionNode.getChildren().get(0).getChildren().get(1).getChildren().size(); i++) {
+            String paramName = ((VariableDeclarationNode) functionNode.getChildren().get(0).getChildren().get(1).getChildren().get(i)).variableName.getName();
+//            System.out.println(param.getChildren().get(i));
+            if (param.getChildren().get(i) instanceof LiteralNode) {
+                localEnv.updateVariable(paramName, ((LiteralNode) param.getChildren().get(i)).getValue() , funcName);
+            } else if (param.getChildren().get(i) instanceof IdentifierNode) {
+                localEnv.setScopeType(lastScopeType);
+
+//                if (environment.getVariable(((IdentifierNode) param.getChildren().get(i)).getName(), "global") == null) {
+//                    System.out.println("no global");
+//                }
+
+                Object value = localEnv.getVariableRecursive(((IdentifierNode) param.getChildren().get(i)).getName(), lastScopeType).getValue();
 
                 localEnv.setScopeType(funcName);
                 localEnv.updateVariable(paramName, value , funcName);
@@ -2188,13 +2812,23 @@ class FunctionCall extends Node {
 //        environment.setScopeType(funcName);
 
         for (int j = 0; j < functionNode.getChildren().get(1).getChildren().size(); j++) {
+
             functionNode.getChildren().get(1).getChildren().get(j).execute(localEnv);
             if (localEnv.haveVariable("return" + localEnv.getScopeType(), localEnv.getScopeType())) {
                 Object returning = localEnv.getVariable("return" + localEnv.getScopeType(), localEnv.getScopeType()).getValue();
                 localEnv.removeVariable("return" + localEnv.getScopeType(), localEnv.getScopeType());
                 localEnv.setScopeType(lastScopeType);
 //                environment.setScopeType(lastScopeType);
-                environment.syncFunctions(localEnv);
+                if (!Objects.equals(lastScopeType, localEnv.getScopeType())) {
+                    localEnv.setScopeType(lastScopeType);
+                    environment = localEnv.deepCopy();
+                    localEnv.printAllVariables();
+                    System.out.println("higihih");
+                } else {
+                    localEnv.setScopeType(lastScopeType);
+                    environment.syncFunctions(localEnv);
+                }
+//                environment.syncFunctions(localEnv);
                 return returning;
             }
         }
@@ -2269,6 +2903,7 @@ class FunctionCall extends Node {
 //        environment.syncFunctions(localEnv);
 //        return null;
 //    }
+
 
     public Object executeInput(Environment environment) {
         Scanner scanner = new Scanner(System.in);
@@ -3436,9 +4071,10 @@ class Parser {
                 advance();
                 return re;
 //            } else if (program.isVariable(new IdentifierNode(identifierToken.identifier)) != null) {
-            } else if (this.symbolTable.getSymbolScope(identifierToken.identifier + "_" + this.scope) == scope) {
+            } else if (this.symbolTable.isVariableAccessible(identifierToken.identifier, this.scope) != null) {
                 advance();
-                this.symbolTable.addNumUse(identifierToken.identifier + "_" + this.scope);
+
+                this.symbolTable.addNumUse(identifierToken.identifier + "_" + this.symbolTable.isVariableAccessible(identifierToken.identifier, this.scope));
                 if (getCurrentToken().code == TokenCode.DOT) {
                     IdentifierNode variableIdentifier = new IdentifierNode(identifierToken.identifier);
                     advance();  // Переходим к следующему токену
@@ -3449,7 +4085,7 @@ class Parser {
 
                     // Проверка, является ли `index` числовым значением
                     if (isInteger(index)) {
-                        int listLength = symbolTable.getSymbolLength(identifierToken.identifier + "_" + this.scope);
+                        int listLength = symbolTable.getSymbolLength(identifierToken.identifier + "_" + this.symbolTable.isVariableAccessible(identifierToken.identifier, this.scope));
 //                        if (Integer.parseInt(index) < 0 || Integer.parseInt(index) >= listLength) {
 //                            throw new ParseException("Index " + index + " out of bounds for list " + identifierToken.identifier);
 //                        }
@@ -3568,7 +4204,7 @@ class Parser {
             } else {
                 this.symbolTable.printTable();
                 System.out.println(identifierToken.identifier + "_" + this.scope);
-                throw new ParseException("The identifier is not declared: " + ((Identifier) getCurrentToken()).identifier + " in line " + ((Identifier) getCurrentToken()).span.lineNum);
+                throw new ParseException("The identifier " + ((Identifier) getCurrentToken()).identifier + " is not declared in: " + this.scope + " in line " + ((Identifier) getCurrentToken()).span.lineNum);
             }
         }
 
@@ -3696,7 +4332,9 @@ class Parser {
             return parseDeclaration();
         }  else if (getCurrentToken().code == TokenCode.RETURN) {
 //            if (this.scope != "global") {
+
             return parseReturn();
+
 //            }
 //            throw new ParseException("ERROR in line: " + getCurrentToken().span.lineNum + ". Return must be used inside the function.");
         } else if (getCurrentToken().code == TokenCode.FUNC) {
@@ -3721,11 +4359,20 @@ class Variable {
     private String name;
     private Object value;
     private String scope;
+    private Environment closureEnv;
 
     public Variable(String name, Object value, String scope) {
         this.name = name;
         this.value = value;
         this.scope = scope;
+        this.closureEnv = null;
+    }
+
+    public Variable(String name, Object value, String scope, Environment closureEnv) {
+        this.name = name;
+        this.value = value;
+        this.scope = scope;
+        this.closureEnv = closureEnv;  // Инициализация окружения замыкания
     }
 
     public Variable deepCopy() {
@@ -3736,6 +4383,10 @@ class Variable {
 
     public String getName() {
         return name;
+    }
+
+    public Environment getClosureEnv() {
+        return this.closureEnv;
     }
 
     public Object getValue() {
@@ -3752,7 +4403,7 @@ class Variable {
 
     @Override
     public String toString() {
-        return "Variable{name='" + name + "', value=" + value + ", scope='" + scope + "'}";
+        return "Variable{name='" + name + "', value=" + value + ", scope='" + scope + "', cloEnvscope='" + closureEnv + "'}";
     }
 }
 
@@ -3790,6 +4441,18 @@ class Environment {
 
         }
         scopeVars.put(name, new Variable(name, value, scopeType));
+    }
+
+    public void addVariable(String name, Object value, String scopeType, Environment closureEnv) {
+        if (this.scopeType != "global") {
+            scopeType = this.scopeType;
+        }
+        scopedVariables.putIfAbsent(scopeType, new HashMap<>());
+        Map<String, Variable> scopeVars = scopedVariables.get(scopeType);
+//        if (scopeVars.containsKey(name)) {
+//            updateVariable(name, value, scopeType, closureEnv);
+//        }
+        scopeVars.put(name, new Variable(name, value, scopeType, closureEnv));
     }
 
     public void removeVariable(String name, String scopeType) {
@@ -3865,6 +4528,117 @@ class Environment {
     }
 
 
+
+    public Variable getVariableRecursive(String name, String currentScope) {
+        // Логируем текущий шаг
+//        System.out.println("Ищем переменную: " + name + " в области: " + currentScope);
+
+        // Проверяем переменную в текущей области
+        Map<String, Variable> scopeVars = scopedVariables.get(currentScope);
+        if (scopeVars != null && scopeVars.containsKey(name)) {
+//            System.out.println("Переменная " + name + " найдена в области: " + currentScope);
+            return scopeVars.get(name);
+        }
+
+        // Если переменная не найдена в текущей области
+        if (!scopedVariables.containsKey(currentScope)) {
+//            System.out.println("Область " + currentScope + " не найдена.");
+            throw new RuntimeException("Область " + currentScope + " не найдена.");
+        }
+
+        // Пробуем перейти в родительскую область
+//        System.out.println("Переменная " + name + " не найдена, ищем родительскую область...");
+//        System.out.println(currentScope);
+
+        String parentScopeVars = null;
+        for (Map.Entry<String, Map<String, Variable>> scopeEntry : scopedVariables.entrySet()) {
+            String scopeName = scopeEntry.getKey();  // Ключ внешнего Map, например "global", "checkValue2", etc.
+            Map<String, Variable> variables = scopeEntry.getValue();  // Внутренний Map, содержащий переменные для текущей области
+//            System.out.println("Scope2: " + scopeName);  // Выводим название области
+            for (Map.Entry<String, Variable> varEntry : variables.entrySet()) {
+                String variableName = varEntry.getKey();  // Название переменной
+                Variable variable = varEntry.getValue();  // Переменная
+//                System.out.println("Scope3: " + variableName + " " + currentScope);
+                if (Objects.equals(variableName, currentScope)) {
+                    parentScopeVars = scopeName;
+                }
+//                System.out.println("  Variable Name: " + variableName + ", Value: " + variable.getValue());
+            }
+        }
+//        System.out.println(parentScopeVars);
+        if (parentScopeVars != null) {
+            // Логируем переход в родительскую область
+//            System.out.println("Переходим в родительскую область: " + parentScopeVars);
+
+            // Рекурсивно ищем переменную в родительской области
+            return getVariableRecursive(name, parentScopeVars);
+        }
+
+        // Если переменная не найдена в родительских областях
+        printAllVariables();
+//        System.out.println("Переменная " + name + " не найдена в родительской области.");
+        throw new RuntimeException("Переменная " + name + " не найдена в области " + currentScope + ".");
+    }
+
+
+    public Variable getVariableRecursiveFromGlobal(String name, String currentScope) {
+        // Логируем текущий шаг
+        System.out.println("Ищем переменную: " + name + " в области: " + currentScope);
+
+        // Проверяем переменную в текущей области
+        Map<String, Variable> scopeVars = scopedVariables.get(currentScope);
+        if (scopeVars != null && scopeVars.containsKey(name)) {
+            System.out.println("Переменная " + name + " найдена в области: " + currentScope);
+            return scopeVars.get(name);
+        }
+
+        // Если переменная не найдена в текущей области
+        if (!scopedVariables.containsKey(currentScope)) {
+            System.out.println("Область " + currentScope + " не найдена.");
+            throw new RuntimeException("Область " + currentScope + " не найдена.");
+        }
+
+        // Пробуем перейти в родительскую область
+        System.out.println("Переменная " + name + " не найдена, ищем родительскую область...");
+        System.out.println(currentScope);
+
+        String parentScopeVars = null;
+        for (Map.Entry<String, Map<String, Variable>> scopeEntry : scopedVariables.entrySet()) {
+            String scopeName = scopeEntry.getKey();  // Ключ внешнего Map, например "global", "checkValue2", etc.
+            Map<String, Variable> variables = scopeEntry.getValue();  // Внутренний Map, содержащий переменные для текущей области
+            System.out.println("Scope2: " + scopeName);  // Выводим название области
+            if (Objects.equals(scopeName, name)) {
+                parentScopeVars = scopeName;
+            }
+            for (Map.Entry<String, Variable> varEntry : variables.entrySet()) {
+                String variableName = varEntry.getKey();  // Название переменной
+                Variable variable = varEntry.getValue();  // Переменная
+                System.out.println("Scope3: " + variableName + " " + currentScope);
+                if (Objects.equals(variableName, name)) {
+                    parentScopeVars = scopeName;
+                }
+//                System.out.println("  Variable Name: " + variableName + ", Value: " + variable.getValue());
+            }
+        }
+        System.out.println(parentScopeVars);
+        if (parentScopeVars != null) {
+            // Логируем переход в родительскую область
+            System.out.println("Переходим в родительскую область: " + parentScopeVars);
+
+            // Рекурсивно ищем переменную в родительской области
+            return getVariableRecursive(name, parentScopeVars);
+        }
+
+        // Если переменная не найдена в родительских областях
+        printAllVariables();
+        System.out.println("Переменная " + name + " не найдена в родительской области.");
+        throw new RuntimeException("Переменная " + name + " не найдена в области " + currentScope + ".");
+    }
+
+
+
+
+
     private String determineType(Object value) {
         if (value instanceof Integer) {
             return "int";
@@ -3920,6 +4694,7 @@ class Environment {
         return copy;
     }
 
+
     public void syncFunctions(Environment sourceEnv) {
         // Перебираем все переменные в sourceEnv
         for (Map.Entry<String, Map<String, Variable>> scopeEntry : sourceEnv.scopedVariables.entrySet()) {
@@ -3958,6 +4733,7 @@ class Environment {
             }
         }
     }
+
 
 
 
@@ -4271,17 +5047,18 @@ class Lexer {
     }
 
     public int findWordStart() {
-        int charNum = currentCharNum;
+        int charNum = currentCharNum-1;
         while(charNum > 0 && !Character.isWhitespace(this.code.charAt(charNum)) && (!specSymbolCheck(charNum))) {
             charNum--;
         }
-        return charNum;
+        return charNum+1;
     }
 
 
     private boolean digitCheck(Span span) {
         for (int i = span.posBegin; i < span.posEnd; i++) {
             if (!(Character.isDigit(this.code.charAt(i)) || this.code.charAt(i) == '.' || this.code.charAt(i) == ',')) {
+                System.out.println("Error " + this.code.charAt(i));
                 return false;
             }
         }
@@ -4360,11 +5137,16 @@ class Lexer {
         if (specSymbolCheck(this.currentCharNum)) {
             int offset = 1;
             if (this.code.charAt(this.currentCharNum) == '.' && digitCheck(new Span(lineNum, this.currentCharNum+1, this.currentCharNum+2))) {
-                if (digitCheck(new Span(lineNum, findWordStart()-1, this.currentCharNum)) && (this.code.charAt(this.currentCharNum+1) != '.')){
+                System.out.println(this.code.substring(findWordStart(), this.currentCharNum));
+                System.out.println(digitCheck(new Span(lineNum, findWordStart(), this.currentCharNum)));
+                System.out.println((this.code.charAt(this.currentCharNum+1) != '.'));
+                if (digitCheck(new Span(lineNum, findWordStart(), this.currentCharNum-1)) && (this.code.charAt(this.currentCharNum+1) != '.')){
+                    System.out.println(findWordStart());
                     tokenList.remove(tokenList.size()-1);
-                    int charNumNew = findWordStart()-1;
+                    int charNumNew = findWordStart();
                     this.currentCharNum++;
                     findWordEnd();
+                    System.out.println(this.code.substring(charNumNew, this.currentCharNum));
                     return scanNumber(new Span(lineNum, charNumNew, this.currentCharNum));
                 }
             }
