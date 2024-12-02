@@ -1557,7 +1557,7 @@ class VariableDeclarationNode extends DeclarationNode {
             while (listNe.size() <= index) {
                 listNe.add(null);  // Добавляем null в список
             }
-
+            
             listNe.set(index, newValue);
         } else if (list instanceof LinkedHashMap<?, ?>) {
             // Изменяем значение в словаре
